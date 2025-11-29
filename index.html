@@ -1,0 +1,119 @@
+
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GLR Productions Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              glr: {
+                900: '#0f172a',
+                800: '#1e293b',
+                700: '#334155',
+                accent: '#f59e0b', // Amber for production feel
+                primary: '#3b82f6',
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body {
+        background-color: #0f172a;
+        color: #e2e8f0;
+        font-family: 'Inter', sans-serif;
+      }
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #1e293b; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #475569; 
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #64748b; 
+      }
+
+      /* PRINT STYLES FOR PDF EXPORT */
+      @media print {
+        body {
+          background-color: white !important;
+          color: black !important;
+        }
+        /* Hide UI elements */
+        .no-print, aside, header, .scrollbar-thin, button:not(.print-allowed), input:not(.print-allowed), select {
+          display: none !important;
+        }
+        /* Ensure printable areas are visible and formatted */
+        .print-only {
+          display: block !important;
+          width: 100%;
+          margin: 0;
+          padding: 0;
+          overflow: visible !important;
+          height: auto !important;
+          background: white !important;
+          color: black !important;
+          border: none !important;
+          box-shadow: none !important;
+        }
+        /* Page Breaks */
+        .page-break {
+          page-break-before: always;
+          break-before: page;
+        }
+        /* Remove Scrollbars from containers */
+        div {
+          overflow: visible !important;
+        }
+        /* Tables */
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          border: 1px solid black !important;
+        }
+        th, td {
+          border: 1px solid black !important;
+          color: black !important;
+        }
+        /* Text Colors Force */
+        h1, h2, h3, h4, p, span, div {
+             color: black !important;
+        }
+        /* Reset Backgrounds */
+        .bg-gray-100, .bg-gray-200, .bg-gray-800 {
+            background-color: transparent !important;
+        }
+    }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.0",
+    "vite": "https://aistudiocdn.com/vite@^7.2.4",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

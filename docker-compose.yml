@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # 1. Database Service (PostgreSQL)
+  db:
+    image: postgres:15-alpine
+    container_name: glr_db
+    restart: always
+    environment:
+      POSTGRES_USER: glr_user
+      POSTGRES_PASSWORD: glr_secure_password
+      POSTGRES_DB: glr_manager
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    networks:
+      - glr_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glr_user -d glr_manager"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Backend API Service (Node.js)
+  api:
+    build: ./server
+    container_name: glr_api
+    restart: always
+    ports:
+      - "3001:3000"
+    environment:
+      DATABASE_URL: "postgresql://glr_user:glr_secure_password@db:5432/glr_manager?schema=public"
+      PORT: 3000
+    # COMANDO CRUCIALE: Aspetta il DB, crea le tabelle, poi avvia il server
+    command: >
+      sh -c "npx prisma db push && node index.js"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - glr_network
+
+  # 3. Frontend Service (Nginx + React)
+  web:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: glr_web
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    networks:
+      - glr_network
+
+networks:
+  glr_network:
+    driver: bridge
