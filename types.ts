@@ -115,19 +115,23 @@ export interface CrewAbsence {
   endDate: string;
   status: ApprovalStatus;
   workflowLog: WorkflowLog[];
+  notes?: string;
 }
 
+// NEW: Manual Tasks (e.g., Warehouse work, Vehicle Check)
 export interface CrewTask {
     id: string;
-    date: string;
+    date: string; // YYYY-MM-DD
     description: string;
     assignedBy: string;
+    jobId?: string; // Optional link to job
 }
 
+// NEW: Documents
 export interface CrewDocument {
     id: string;
     name: string;
-    type: 'Unilav' | 'Certificazione' | 'Visita Medica' | 'Altro';
+    type: 'Unilav' | 'Certificazione' | 'Visita Medica' | 'Patente' | 'Altro';
     expiryDate?: string;
     uploadDate: string;
     fileUrl?: string;
@@ -157,12 +161,14 @@ export interface CrewMember {
   phone: string;
   absences: CrewAbsence[];
   expenses: CrewExpense[];
-  tasks?: CrewTask[];
-  documents?: CrewDocument[];
+  tasks?: CrewTask[]; // Manual tasks
+  documents?: CrewDocument[]; // Certs, Medical, etc.
   financialDocuments?: FinancialDocument[];
-  // NEW for Company Management
+  
+  // Financial (Company Management)
   monthlyNetCost?: number;
   monthlyTaxCost?: number; 
+  notes?: string;
 }
 
 export interface LocationPower {

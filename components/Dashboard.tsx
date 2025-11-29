@@ -91,23 +91,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
       const pendingTotal = (myCrewProfile?.expenses || []).filter(e => e.status === ApprovalStatus.PENDING).reduce((acc, e) => acc + e.amount, 0);
       const approvedTotal = (myCrewProfile?.expenses || []).filter(e => e.status === ApprovalStatus.APPROVED_MANAGER || e.status === ApprovalStatus.COMPLETED).reduce((acc, e) => acc + e.amount, 0);
 
-      // Group Documents
-      const documentsByMonth: Record<string, any> = {};
-      // Fill current year months
-      for(let i=0; i<12; i++) {
-          const mName = monthNames[i];
-          documentsByMonth[mName] = null;
-      }
-      // Populate with existing
-      (myCrewProfile?.financialDocuments || []).forEach(doc => {
-           if (doc.type === 'Busta Paga' && doc.month) {
-               const mIndex = parseInt(doc.month) - 1;
-               if (mIndex >= 0 && mIndex < 12) {
-                   documentsByMonth[monthNames[mIndex]] = doc;
-               }
-           }
-      });
-      const cuDocs = (myCrewProfile?.financialDocuments || []).filter(d => d.type === 'CU');
+      // Workload 5+2 Calculation
+      const myWorkload = calculateMissedRestDaysHelper(
+          jobs, 
+          currentUser.id, 
+          new Date().getFullYear(), 
+          new Date().getMonth(),
+          myCrewProfile?.tasks || [],
+          myCrewProfile?.absences || []
+      );
 
       return (
           <div className="space-y-6 animate-fade-in h-full flex flex-col overflow-y-auto pb-10">
@@ -119,6 +111,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
                        <h2 className="text-2xl font-bold text-white">Ciao, {myCrewProfile?.name}</h2>
                        <p className="text-gray-400">Bentornato nel tuo HUB personale.</p>
                    </div>
+              </div>
+
+              {/* ALERT 5+2 */}
+              <div className={`p-4 rounded-xl border flex items-start gap-4 ${myWorkload.missedRest > 0 ? 'bg-orange-900/20 border-orange-800' : 'bg-green-900/20 border-green-800'}`}>
+                  {myWorkload.missedRest > 0 ? <AlertTriangle size={24} className="text-orange-500 mt-1"/> : <CheckCircle size={24} className="text-green-500 mt-1"/>}
+                  <div>
+                      <h4 className={`font-bold ${myWorkload.missedRest > 0 ? 'text-orange-400' : 'text-green-400'}`}>Stato Riposi</h4>
+                      <p className="text-gray-300 text-sm mt-1">
+                          Hai lavorato <b>{myWorkload.totalWorked}</b> giorni questo mese.
+                          {myWorkload.missedRest > 0 
+                            ? ` ⚠ Attenzione: Hai accumulato ${myWorkload.missedRest} giorni di mancato riposo da recuperare o farti pagare.` 
+                            : ' ✅ Sei in linea con i riposi settimanali (5+2).'}
+                      </p>
+                  </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -153,51 +159,40 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
                           </div>
                       </div>
 
-                      {/* ARCHIVIO DOCUMENTI CONTABILI */}
-                       <div className="bg-glr-800 border border-glr-700 rounded-xl p-5 shadow-lg">
-                          <h3 className="text-white font-bold uppercase text-sm mb-4 flex items-center gap-2">
-                              <FileText size={16}/> Archivio Contabile (Buste Paga & CU)
-                          </h3>
-                          
-                          <div className="mb-6">
-                              <h4 className="text-xs text-gray-400 uppercase mb-2">Buste Paga {year}</h4>
-                              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                                  {monthNames.map((m, idx) => {
-                                      const doc = documentsByMonth[m];
-                                      const isFuture = idx > new Date().getMonth();
-                                      return (
-                                          <div key={m} className={`p-2 rounded border text-center flex flex-col items-center justify-center min-h-[80px] transition-colors
-                                              ${doc 
-                                                ? 'bg-blue-900/20 border-blue-600 cursor-pointer hover:bg-blue-800/30' 
-                                                : isFuture ? 'bg-glr-900/30 border-transparent opacity-30' : 'bg-glr-900 border-glr-700 text-gray-600'
-                                              }`}
-                                              onClick={() => doc && alert(`Download ${doc.name}`)}
-                                          >
-                                              <span className="text-xs font-bold mb-1 block">{m.substring(0,3)}</span>
-                                              {doc ? <Download size={16} className="text-blue-400"/> : !isFuture && <span className="text-xs">-</span>}
-                                          </div>
-                                      )
-                                  })}
-                              </div>
-                          </div>
-                          
-                          {cuDocs.length > 0 && (
-                              <div>
-                                  <h4 className="text-xs text-gray-400 uppercase mb-2">Certificazioni Uniche (CU)</h4>
-                                  <div className="space-y-2">
-                                      {cuDocs.map(doc => (
-                                          <div key={doc.id} className="flex justify-between items-center p-3 bg-glr-900 border border-glr-700 rounded hover:bg-glr-700/50 cursor-pointer">
-                                               <div className="flex items-center gap-2">
-                                                   <FileText size={18} className="text-glr-accent"/>
-                                                   <span className="text-sm font-bold text-white">{doc.name}</span>
-                                               </div>
-                                               <button className="text-blue-400 hover:text-white"><Download size={16}/></button>
-                                          </div>
-                                      ))}
-                                  </div>
-                              </div>
-                          )}
-                       </div>
+                      {/* MY PLANNING (Mini) */}
+                      <div className="bg-glr-800 border border-glr-700 rounded-xl p-5 shadow-lg">
+                           <h3 className="text-white font-bold uppercase text-sm mb-4 flex items-center gap-2">
+                              <CalIcon size={16}/> Il Mio Planning (Questa Settimana)
+                           </h3>
+                           <div className="grid grid-cols-7 gap-2">
+                               {Array.from({length: 7}, (_, i) => {
+                                   const d = new Date();
+                                   const currentDay = d.getDay();
+                                   const diff = d.getDate() - currentDay + (currentDay === 0 ? -6 : 1) + i; // Start Monday
+                                   d.setDate(diff);
+                                   return d;
+                               }).map(date => {
+                                   // Simple status check just for display
+                                   const dateStr = date.toISOString().split('T')[0];
+                                   const hasJob = myJobs.some(j => dateStr >= j.startDate && dateStr <= j.endDate);
+                                   const hasTask = myCrewProfile?.tasks?.some(t => t.date === dateStr);
+                                   const isAbsence = myCrewProfile?.absences?.some(a => dateStr >= a.startDate && dateStr <= a.endDate);
+                                   const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+
+                                   return (
+                                       <div key={dateStr} className={`p-2 rounded border text-center ${
+                                            hasJob ? 'bg-green-900/30 border-green-700 text-green-300' : 
+                                            isAbsence ? 'bg-yellow-900/30 border-yellow-700 text-yellow-300' :
+                                            hasTask ? 'bg-purple-900/30 border-purple-700 text-purple-300' :
+                                            isWeekend ? 'bg-glr-900 border-glr-700 text-gray-500' : 'bg-blue-900/10 border-blue-900/30 text-blue-400'
+                                       }`}>
+                                           <div className="text-[10px] uppercase font-bold mb-1">{date.toLocaleDateString('it-IT', {weekday: 'short'})}</div>
+                                           <div className="text-lg font-bold">{date.getDate()}</div>
+                                       </div>
+                                   )
+                               })}
+                           </div>
+                      </div>
                   </div>
 
                   {/* RIGHT COL: EXPENSES */}
@@ -324,6 +319,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
     j.status === JobStatus.CONFIRMED && (j.materialList.length === 0 || j.assignedCrew.length === 0)
   );
 
+  // Expiring Documents Check
+  const expiringDocs = crew.flatMap(c => 
+      (c.documents || []).filter(d => {
+          if(!d.expiryDate) return false;
+          const expiry = new Date(d.expiryDate);
+          const now = new Date();
+          const diffDays = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          return diffDays <= 30;
+      }).map(d => ({ member: c.name, doc: d.name, date: d.expiryDate }))
+  );
+
   return (
     <div className="space-y-6 animate-fade-in h-full flex flex-col overflow-y-auto">
        {/* KPI Cards Row */}
@@ -418,24 +424,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
                 </div>
             </div>
 
-            {/* 2. PRIORITY TASKS */}
-            <div className="bg-glr-800 border border-glr-700 rounded-xl p-4 shadow-lg">
-                <h3 className="text-red-400 font-bold uppercase text-xs mb-3 flex items-center gap-2">
-                    <AlertTriangle size={14}/> Task Aperti & Priorità
-                </h3>
-                <div className="space-y-2">
-                    {priorityTasks.length === 0 && <p className="text-gray-500 text-sm italic">Nessuna criticità rilevata.</p>}
-                    {priorityTasks.map(job => (
-                        <div key={job.id} className="bg-red-900/20 border border-red-900/50 p-2 rounded text-xs text-gray-300">
-                            <span className="text-red-300 font-bold block mb-1">{job.title}</span>
-                            {job.materialList.length === 0 && <div className="flex items-center gap-1"><AlertCircle size={10}/> Manca Lista Materiale</div>}
-                            {job.assignedCrew.length === 0 && <div className="flex items-center gap-1"><Users size={10}/> Manca Crew</div>}
-                        </div>
-                    ))}
+            {/* 2. ALERTS: DOCS */}
+            {expiringDocs.length > 0 && (
+                <div className="bg-glr-800 border border-glr-700 rounded-xl p-4 shadow-lg">
+                    <h3 className="text-orange-400 font-bold uppercase text-xs mb-3 flex items-center gap-2">
+                        <FileText size={14}/> Documenti in Scadenza
+                    </h3>
+                    <div className="space-y-2">
+                        {expiringDocs.map((item, idx) => (
+                             <div key={idx} className="bg-orange-900/20 border border-orange-900/50 p-2 rounded text-xs">
+                                 <span className="text-white font-bold block">{item.member}</span>
+                                 <span className="text-orange-300">{item.doc}</span> - <span className="text-gray-400">{item.date ? new Date(item.date).toLocaleDateString() : ''}</span>
+                             </div>
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
 
-            {/* 3. REST DAY ANALYSIS */}
+            {/* 3. REST DAY ANALYSIS (5+2) */}
             <div className="bg-glr-800 border border-glr-700 rounded-xl p-4 shadow-lg flex-1">
                 <h3 className="text-blue-400 font-bold uppercase text-xs mb-3 flex items-center gap-2">
                     <Clock size={14}/> Monitoraggio Riposi ({monthNames[month]})
@@ -451,7 +457,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
                         </thead>
                         <tbody className="divide-y divide-glr-700/50">
                             {crew.filter(c => c.type === CrewType.INTERNAL).map(c => {
-                                const analysis = calculateMissedRestDaysHelper(jobs, c.id, year, month);
+                                const analysis = calculateMissedRestDaysHelper(jobs, c.id, year, month, c.tasks || [], c.absences);
                                 return (
                                     <tr key={c.id}>
                                         <td className="py-2 text-white font-medium">{c.name}</td>
