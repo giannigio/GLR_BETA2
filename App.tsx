@@ -1,9 +1,4 @@
 
-
-
-
-
-
 import React, { useState, useEffect } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { Jobs } from './components/Jobs';
@@ -38,17 +33,23 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Authentication State - DEMO MODE: Default to ADMIN
-  const [currentUser, setCurrentUser] = useState<{ id: string, name: string; role: SystemRole } | null>({
-      id: 'demo-admin-id',
-      name: 'Admin Demo',
-      role: 'ADMIN'
-  });
+  // Authentication State
+  const [currentUser, setCurrentUser] = useState<{ id: string, name: string; role: SystemRole } | null>(null);
 
+  // 1. Check Session on Load
   useEffect(() => {
-    setIsLoading(false);
+      const storedUser = localStorage.getItem('glr_user');
+      if (storedUser) {
+          try {
+              setCurrentUser(JSON.parse(storedUser));
+          } catch (e) {
+              localStorage.removeItem('glr_user');
+          }
+      }
+      setIsLoading(false);
   }, []);
 
+  // 2. Load Data when User is Set
   useEffect(() => {
     if (!currentUser) return;
 
@@ -76,6 +77,10 @@ const App: React.FC = () => {
         setSettings(fetchedSettings);
       } catch (error) {
         console.error("Failed to load data", error);
+        // If 401, logout
+        if ((error as any).message?.includes('401') || (error as any).message?.includes('Unauthorized')) {
+            handleLogout();
+        }
       }
     };
 
@@ -83,12 +88,12 @@ const App: React.FC = () => {
   }, [currentUser]);
 
   const handleLogout = () => {
-      if (confirm("Sei in modalità Demo. Vuoi uscire?")) {
-          setCurrentUser(null);
-      }
+      localStorage.removeItem('glr_user');
+      localStorage.removeItem('glr_token');
+      setCurrentUser(null);
   };
 
-  // CRUD Handlers
+  // CRUD Handlers (Updated to use real API and refresh state)
   const handleAddJob = async (job: Job) => {
     const savedJob = await api.createJob(job);
     setJobs(prev => [...prev, savedJob]);
@@ -349,7 +354,6 @@ const App: React.FC = () => {
             {activeTab === 'JOBS' && canAccess('JOBS') && <Jobs jobs={jobs} crew={crew} locations={locations} inventory={inventory} standardLists={standardLists} onAddJob={handleAddJob} onUpdateJob={handleUpdateJob} onDeleteJob={handleDeleteJob} currentUser={currentUser} settings={settings} tasks={tasks} onAddTask={handleAddTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} />}
             {activeTab === 'RENTALS' && canAccess('RENTALS') && <Rentals rentals={rentals} inventory={inventory} jobs={jobs} onAddRental={handleAddRental} onUpdateRental={handleUpdateRental} onDeleteRental={handleDeleteRental} settings={settings} currentUser={currentUser} />}
             {activeTab === 'INVENTORY' && canAccess('INVENTORY') && <Inventory inventory={inventory} onAddItem={handleAddInventory} onUpdateItem={handleUpdateInventory} onDeleteItem={handleDeleteInventory} />}
-            {/* UPDATED: StandardLists now receives Jobs logic for Operations view */}
             {activeTab === 'STD_LISTS' && canAccess('STD_LISTS') && <StandardLists lists={standardLists} inventory={inventory} onAddList={handleAddStdList} onUpdateList={handleUpdateStdList} onDeleteList={handleDeleteStdList} jobs={jobs} onUpdateJob={handleUpdateJob} />}
             {activeTab === 'LOCATIONS' && canAccess('LOCATIONS') && <Locations locations={locations} onAddLocation={handleAddLocation} onUpdateLocation={handleUpdateLocation} onDeleteLocation={handleDeleteLocation} currentUser={currentUser} />}
             {activeTab === 'CREW' && canAccess('CREW') && <Crew crew={crew} onUpdateCrew={handleUpdateCrew} jobs={jobs} settings={settings} currentUser={currentUser} />}

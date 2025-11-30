@@ -425,9 +425,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
                    <AlertCircle className="text-glr-accent"/> Task & Priorità
                    <span className="text-xs font-normal text-gray-400 bg-glr-900 px-2 py-0.5 rounded-full">{priorityTasks.length} avvisi</span>
                </h3>
-               {currentUser?.role !== 'TECH' && (
-                   <button onClick={() => setIsAdminTaskModalOpen(true)} className="bg-glr-900 border border-glr-600 text-gray-300 px-3 py-1 rounded text-xs hover:bg-glr-700 font-bold flex items-center gap-2"><Plus size={14}/> Nuovo Task</button>
-               )}
+               <button onClick={() => setIsAdminTaskModalOpen(true)} className="bg-glr-900 border border-glr-600 text-gray-300 px-3 py-1 rounded text-xs hover:bg-glr-700 font-bold flex items-center gap-2"><Plus size={14}/> Nuovo Task</button>
            </div>
            
            {priorityTasks.length === 0 ? (

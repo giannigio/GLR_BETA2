@@ -1,1 +1,167 @@
-���Ȭʋ�>������~)^�
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String      @id @default(uuid())
+  email        String      @unique
+  password     String
+  role         String      @default("TECH") // 'ADMIN', 'MANAGER', 'TECH'
+  crewMemberId String?     @unique
+  crewMember   CrewMember? @relation(fields: [crewMemberId], references: [id])
+}
+
+model CrewMember {
+  id                 String   @id @default(uuid())
+  name               String
+  type               String // 'Interno', 'Esterno'
+  roles              String[]
+  dailyRate          Float?   @default(0)
+  phone              String?
+  email              String?
+  notes              String?
+  monthlyNetCost     Float?
+  monthlyTaxCost     Float?
+  absences           Json?    @default("[]") // Array of CrewAbsence
+  expenses           Json?    @default("[]") // Array of CrewExpense
+  tasks              Json?    @default("[]") // Array of CrewTask (Manual)
+  documents          Json?    @default("[]") // Array of CrewDocument
+  financialDocuments Json?    @default("[]") // Array of FinancialDocument
+  user               User?
+}
+
+model Job {
+  id                  String   @id @default(uuid())
+  title               String
+  client              String
+  internalClient      String?
+  location            String
+  locationId          String?
+  startDate           String
+  endDate             String
+  status              String
+  logisticsStatus     String?  @default("PREPARATION")
+  description         String?
+  departments         String[]
+  isAwayJob           Boolean? @default(false)
+  isSubcontracted     Boolean? @default(false)
+  subcontractorName   String?
+  outfitNoLogo        Boolean? @default(false)
+  outfit              String?
+  contactName         String?
+  contactPhone        String?
+  contactEmail        String?
+  hotelName           String?
+  hotelAddress        String?
+  hasPorterage        Boolean? @default(false)
+  porterageAgency     String?
+  porterageTime       String?
+  invoiceAmount       Float?   @default(0)
+  extraCosts          Json?    @default("[]")
+  hasExternalService  Boolean? @default(false)
+  externalServiceName String?
+  externalServiceRole String?
+  phases              Json?    @default("[]")
+  vehicles            Json?    @default("[]")
+  materialList        Json?    @default("[]")
+  assignedCrew        String[]
+}
+
+model InventoryItem {
+  id              String  @id @default(uuid())
+  name            String
+  category        String
+  type            String?
+  quantityOwned   Int?    @default(0)
+  serialNumber    String?
+  status          String? @default("Operativo")
+  weightKg        Float?
+  notes           String?
+  related         String?
+  accessories     String?
+  correlationType String?
+}
+
+model Location {
+  id                 String   @id @default(uuid())
+  name               String
+  address            String
+  hallSizeMQ         Int?     @default(0)
+  mapsLink           String?
+  isZtl              Boolean? @default(false)
+  contactName        String?
+  contactPhone       String?
+  accessHours        String?
+  generalSurveyNotes String?
+  photos             String[]
+  power              Json?    @default("{}")
+  network            Json?    @default("{}")
+  logistics          Json?    @default("{}")
+  equipment          Json?    @default("{}")
+}
+
+model Rental {
+  id              String   @id @default(uuid())
+  status          String
+  client          String
+  contactName     String?
+  contactPhone    String?
+  contactEmail    String?
+  pickupDate      String
+  returnDate      String
+  deliveryMethod  String
+  deliveryAddress String?
+  notes           String?
+  totalPrice      Float?
+  items           Json?    @default("[]")
+}
+
+model StandardMaterialList {
+  id     String   @id @default(uuid())
+  name   String
+  type   String?  @default("TEMPLATE")
+  labels String[]
+  items  Json?    @default("[]")
+}
+
+model CostCenter {
+  id          String  @id @default(uuid())
+  category    String
+  description String
+  amount      Float
+  periodicity String
+  expiryDate  String?
+  supplier    String?
+  autoRenew   Boolean? @default(false)
+  notes       String?
+}
+
+model F24Payment {
+  id          String @id @default(uuid())
+  month       Int
+  year        Int
+  amount      Float
+  paymentDate String
+  notes       String?
+}
+
+model Task {
+  id          String  @id @default(uuid())
+  title       String
+  description String?
+  assignedTo  String?
+  createdBy   String?
+  jobId       String?
+  deadline    String?
+  status      String? @default("PENDING")
+}
+
+model AppSettings {
+  id       Int   @id @default(1)
+  settings Json? @default("{}")
+}

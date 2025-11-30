@@ -8,17 +8,11 @@ const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // Increased limit for base64 images
 
 // --- SEEDING DEFAULT ADMIN ---
 async function seedDefaultAdmin() {
     try {
-        const adminExists = await prisma.crewMember.findFirst({
-            where: { 
-               user: { email: 'admin@glr.it' }
-            }
-        });
-
         const adminUserExists = await prisma.user.findUnique({
             where: { email: 'admin@glr.it' }
         });
@@ -31,9 +25,13 @@ async function seedDefaultAdmin() {
                 data: {
                     name: 'Amministratore',
                     type: 'Interno',
-                    roles: ['PROJECT_MGR'],
+                    roles: ['Project Manager'],
                     dailyRate: 0,
-                    phone: '0000000000'
+                    phone: '0000000000',
+                    absences: [],
+                    expenses: [],
+                    tasks: [],
+                    documents: []
                 }
             });
 
@@ -92,44 +90,48 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
 });
 
+// --- GENERIC CRUD HANDLERS ---
+const createCrud = (model) => ({
+    getAll: async (req, res) => {
+        try {
+            const items = await prisma[model].findMany();
+            res.json(items);
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    },
+    create: async (req, res) => {
+        try {
+            const item = await prisma[model].create({ data: req.body });
+            res.json(item);
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    },
+    update: async (req, res) => {
+        try {
+            const { id, ...data } = req.body;
+            // Handle specific logic for relations if necessary, simplified for now
+            const item = await prisma[model].update({ where: { id: req.params.id }, data });
+            res.json(item);
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    },
+    delete: async (req, res) => {
+        try {
+            await prisma[model].delete({ where: { id: req.params.id } });
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    }
+});
+
 // --- JOBS ---
-app.get('/api/jobs', async (req, res) => {
-  try {
-    const jobs = await prisma.job.findMany({ orderBy: { startDate: 'desc' } });
-    res.json(jobs);
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/jobs', async (req, res) => {
-  try {
-    const job = await prisma.job.create({ data: req.body });
-    res.json(job);
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.put('/api/jobs/:id', async (req, res) => {
-  try {
-    const { id, ...data } = req.body;
-    const job = await prisma.job.update({ where: { id: req.params.id }, data });
-    res.json(job);
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.delete('/api/jobs/:id', async (req, res) => {
-  try {
-    await prisma.job.delete({ where: { id: req.params.id } });
-    res.json({ success: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
+const jobsCrud = createCrud('job');
+app.get('/api/jobs', jobsCrud.getAll);
+app.post('/api/jobs', jobsCrud.create);
+app.put('/api/jobs/:id', jobsCrud.update);
+app.delete('/api/jobs/:id', jobsCrud.delete);
 
 // --- CREW ---
+// Crew needs special handling to include User relation
 app.get('/api/crew', async (req, res) => {
   try {
-    // Join with User table to get email/role
-    const crew = await prisma.crewMember.findMany({
-        include: { user: true }
-    });
-    // Flatten for frontend
+    const crew = await prisma.crewMember.findMany({ include: { user: true } });
     const flatCrew = crew.map(c => ({
         ...c,
         email: c.user?.email,
@@ -143,23 +145,12 @@ app.get('/api/crew', async (req, res) => {
 app.post('/api/crew', async (req, res) => {
   try {
     const { email, password, accessRole, ...crewData } = req.body;
-    
-    // 1. Create Crew Member
     const crew = await prisma.crewMember.create({ data: crewData });
-
-    // 2. If internal, create User
     if (crewData.type === 'Interno' && email && password) {
         await prisma.user.create({
-            data: {
-                email,
-                password,
-                role: accessRole || 'TECH',
-                crewMemberId: crew.id
-            }
+            data: { email, password, role: accessRole || 'TECH', crewMemberId: crew.id }
         });
     }
-    
-    // Return unified object
     res.json({ ...crew, email, password, accessRole });
   } catch (e) { res.status(500).json(e); }
 });
@@ -167,118 +158,66 @@ app.post('/api/crew', async (req, res) => {
 app.put('/api/crew/:id', async (req, res) => {
   try {
     const { id, email, password, accessRole, ...crewData } = req.body;
-    
-    // 1. Update Crew
     const crew = await prisma.crewMember.update({ where: { id: req.params.id }, data: crewData });
-
-    // 2. Update User if exists, or create
     if (crewData.type === 'Interno') {
         const user = await prisma.user.findUnique({ where: { crewMemberId: id } });
         if (user) {
-            await prisma.user.update({
-                where: { crewMemberId: id },
-                data: { email, password, role: accessRole }
-            });
+            await prisma.user.update({ where: { crewMemberId: id }, data: { email, password, role: accessRole } });
         } else if (email && password) {
-            await prisma.user.create({
-                data: { email, password, role: accessRole || 'TECH', crewMemberId: id }
-            });
+            await prisma.user.create({ data: { email, password, role: accessRole || 'TECH', crewMemberId: id } });
         }
     }
-
     res.json({ ...crew, email, password, accessRole });
   } catch (e) { res.status(500).json(e); }
 });
 
 // --- LOCATIONS ---
-app.get('/api/locations', async (req, res) => {
-  try {
-    const locs = await prisma.location.findMany();
-    res.json(locs);
-  } catch (e) { res.status(500).json(e); }
-});
-
-app.post('/api/locations', async (req, res) => {
-  try {
-    const loc = await prisma.location.create({ data: req.body });
-    res.json(loc);
-  } catch (e) { res.status(500).json(e); }
-});
-
-app.put('/api/locations/:id', async (req, res) => {
-  try {
-    const { id, ...data } = req.body;
-    const loc = await prisma.location.update({ where: { id: req.params.id }, data });
-    res.json(loc);
-  } catch (e) { res.status(500).json(e); }
-});
-
-app.delete('/api/locations/:id', async (req, res) => {
-  try {
-    await prisma.location.delete({ where: { id: req.params.id } });
-    res.json({ success: true });
-  } catch (e) { res.status(500).json(e); }
-});
+const locCrud = createCrud('location');
+app.get('/api/locations', locCrud.getAll);
+app.post('/api/locations', locCrud.create);
+app.put('/api/locations/:id', locCrud.update);
+app.delete('/api/locations/:id', locCrud.delete);
 
 // --- INVENTORY ---
-app.get('/api/inventory', async (req, res) => {
-  try {
-    const items = await prisma.inventoryItem.findMany();
-    res.json(items);
-  } catch (e) { res.status(500).json(e); }
-});
-
-app.post('/api/inventory', async (req, res) => {
-  try {
-    const item = await prisma.inventoryItem.create({ data: req.body });
-    res.json(item);
-  } catch (e) { res.status(500).json(e); }
-});
-
-app.put('/api/inventory/:id', async (req, res) => {
-  try {
-    const { id, ...data } = req.body;
-    const item = await prisma.inventoryItem.update({ where: { id: req.params.id }, data });
-    res.json(item);
-  } catch (e) { res.status(500).json(e); }
-});
-
-app.delete('/api/inventory/:id', async (req, res) => {
-  try {
-    await prisma.inventoryItem.delete({ where: { id: req.params.id } });
-    res.json({ success: true });
-  } catch (e) { res.status(500).json(e); }
-});
+const invCrud = createCrud('inventoryItem');
+app.get('/api/inventory', invCrud.getAll);
+app.post('/api/inventory', invCrud.create);
+app.put('/api/inventory/:id', invCrud.update);
+app.delete('/api/inventory/:id', invCrud.delete);
 
 // --- STANDARD LISTS (KITS) ---
-app.get('/api/standard-lists', async (req, res) => {
-  try {
-    const lists = await prisma.standardMaterialList.findMany();
-    res.json(lists);
-  } catch (e) { res.status(500).json(e); }
-});
+const stdCrud = createCrud('standardMaterialList');
+app.get('/api/standard-lists', stdCrud.getAll);
+app.post('/api/standard-lists', stdCrud.create);
+app.put('/api/standard-lists/:id', stdCrud.update);
+app.delete('/api/standard-lists/:id', stdCrud.delete);
 
-app.post('/api/standard-lists', async (req, res) => {
-  try {
-    const list = await prisma.standardMaterialList.create({ data: req.body });
-    res.json(list);
-  } catch (e) { res.status(500).json(e); }
-});
+// --- RENTALS ---
+const rentCrud = createCrud('rental');
+app.get('/api/rentals', rentCrud.getAll);
+app.post('/api/rentals', rentCrud.create);
+app.put('/api/rentals/:id', rentCrud.update);
+app.delete('/api/rentals/:id', rentCrud.delete);
 
-app.put('/api/standard-lists/:id', async (req, res) => {
-  try {
-    const { id, ...data } = req.body;
-    const list = await prisma.standardMaterialList.update({ where: { id: req.params.id }, data });
-    res.json(list);
-  } catch (e) { res.status(500).json(e); }
-});
+// --- COST CENTERS ---
+const costCrud = createCrud('costCenter');
+app.get('/api/cost-centers', costCrud.getAll);
+app.post('/api/cost-centers', costCrud.create);
+app.put('/api/cost-centers/:id', costCrud.update);
+app.delete('/api/cost-centers/:id', costCrud.delete);
 
-app.delete('/api/standard-lists/:id', async (req, res) => {
-  try {
-    await prisma.standardMaterialList.delete({ where: { id: req.params.id } });
-    res.json({ success: true });
-  } catch (e) { res.status(500).json(e); }
-});
+// --- F24 PAYMENTS ---
+const f24Crud = createCrud('f24Payment');
+app.get('/api/f24-payments', f24Crud.getAll);
+app.post('/api/f24-payments', f24Crud.create);
+app.delete('/api/f24-payments/:id', f24Crud.delete);
+
+// --- TASKS ---
+const taskCrud = createCrud('task');
+app.get('/api/tasks', taskCrud.getAll);
+app.post('/api/tasks', taskCrud.create);
+app.put('/api/tasks/:id', taskCrud.update);
+app.delete('/api/tasks/:id', taskCrud.delete);
 
 // --- SETTINGS ---
 app.get('/api/settings', async (req, res) => {
@@ -287,7 +226,7 @@ app.get('/api/settings', async (req, res) => {
         if (config) {
             res.json(config.settings);
         } else {
-            res.json({ companyName: 'GLR Productions' }); 
+            res.json({}); // Will fallback to default in frontend
         }
     } catch (e) { res.status(500).json(e); }
 });
@@ -303,7 +242,7 @@ app.put('/api/settings', async (req, res) => {
     } catch (e) { res.status(500).json(e); }
 });
 
-// --- NOTIFICATIONS (Mock for now) ---
+// --- NOTIFICATIONS (Mock for now, easy to extend) ---
 app.get('/api/notifications', (req, res) => {
     res.json([]);
 });
