@@ -1,6 +1,9 @@
 
 
-import { Job, CrewMember, Location, InventoryItem, AppSettings, Notification, JobStatus, CrewType, CrewRole, ApprovalStatus, VehicleType, StandardMaterialList, CostCenter, F24Payment, Rental, RentalStatus } from '../types';
+
+
+
+import { Job, CrewMember, Location, InventoryItem, AppSettings, Notification, JobStatus, CrewType, CrewRole, ApprovalStatus, VehicleType, StandardMaterialList, CostCenter, F24Payment, Rental, RentalStatus, Task } from '../types';
 
 // --- MOCK DATA FOR DEMO MODE ---
 
@@ -23,6 +26,7 @@ let MOCK_SETTINGS: AppSettings = {
             // View Permissions
             canViewDashboard: true,
             canViewJobs: true,
+            canViewTasks: true,
             canViewKits: true,
             canViewRentals: true,
             canViewInventory: true,
@@ -45,6 +49,7 @@ let MOCK_SETTINGS: AppSettings = {
             // View Permissions
             canViewDashboard: true,
             canViewJobs: true,
+            canViewTasks: true,
             canViewKits: true,
             canViewRentals: true,
             canViewInventory: true,
@@ -153,6 +158,10 @@ let MOCK_F24: F24Payment[] = [
     { id: 'f2', month: 2, year: 2024, amount: 2100, paymentDate: '2024-03-16' }
 ];
 
+let MOCK_TASKS: Task[] = [
+    { id: 't1', title: 'Backup Schede SD', description: 'Scaricare girato su NAS', assignedTo: '2', createdBy: 'demo-admin-id', deadline: new Date().toISOString().split('T')[0], status: 'PENDING', jobId: '1' }
+];
+
 // --- MOCK API ---
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -214,5 +223,11 @@ export const api = {
 
   getF24Payments: async () => { await delay(300); return [...MOCK_F24]; },
   createF24Payment: async (f: F24Payment) => { await delay(300); const n = {...f, id: Date.now().toString()}; MOCK_F24.push(n); return n; },
-  deleteF24Payment: async (id: string) => { await delay(300); MOCK_F24 = MOCK_F24.filter(f => f.id !== id); return true; }
+  deleteF24Payment: async (id: string) => { await delay(300); MOCK_F24 = MOCK_F24.filter(f => f.id !== id); return true; },
+
+  // TASKS
+  getTasks: async () => { await delay(300); return [...MOCK_TASKS]; },
+  createTask: async (t: Task) => { await delay(300); const n = {...t, id: Date.now().toString()}; MOCK_TASKS.push(n); return n; },
+  updateTask: async (t: Task) => { await delay(300); MOCK_TASKS = MOCK_TASKS.map(x => x.id === t.id ? t : x); return t; },
+  deleteTask: async (id: string) => { await delay(300); MOCK_TASKS = MOCK_TASKS.filter(x => x.id !== id); return true; }
 };

@@ -156,6 +156,18 @@ export interface CrewTask {
     jobId?: string; // Optional link to job
 }
 
+// NEW: General Tasks (To-Do List)
+export interface Task {
+    id: string;
+    title: string;
+    description?: string;
+    assignedTo: string; // Crew ID
+    createdBy: string;
+    jobId?: string;
+    deadline: string; // ISO Date
+    status: 'PENDING' | 'COMPLETED';
+}
+
 // NEW: Documents
 export interface CrewDocument {
     id: string;
@@ -190,7 +202,7 @@ export interface CrewMember {
   phone: string;
   absences: CrewAbsence[];
   expenses: CrewExpense[];
-  tasks?: CrewTask[]; // Manual tasks
+  tasks?: CrewTask[]; // Manual tasks (Planning)
   documents?: CrewDocument[]; // Certs, Medical, etc.
   financialDocuments?: FinancialDocument[];
   
@@ -374,6 +386,7 @@ export interface RolePermissions {
     // Menu Visibility (Nav Bar)
     canViewDashboard: boolean;
     canViewJobs: boolean;
+    canViewTasks: boolean; // NEW
     canViewKits: boolean;
     canViewRentals: boolean;
     canViewInventory: boolean;

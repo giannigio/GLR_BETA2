@@ -1,14 +1,17 @@
-
 import React, { useState, useMemo } from 'react';
-import { Job, JobStatus, CrewMember, ApprovalStatus, CrewExpense, WorkflowLog, CrewType, VehicleType } from '../types';
+import { Job, JobStatus, CrewMember, ApprovalStatus, CrewExpense, WorkflowLog, CrewType, VehicleType, Task } from '../types';
 import { calculateMissedRestDaysHelper } from '../services/helpers';
-import { ChevronLeft, ChevronRight, Briefcase, AlertCircle, Truck, Users, AlertTriangle, Calendar as CalIcon, Clock, Wallet, Plus, X, FileText, CheckCircle, Download, ArrowRight, ArrowLeft, Wrench, Package } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Briefcase, AlertCircle, Truck, Users, AlertTriangle, Calendar as CalIcon, Clock, Wallet, Plus, X, FileText, CheckCircle, Download, ArrowRight, ArrowLeft, Wrench, Package, ClipboardCheck, Trash2 } from 'lucide-react';
 
 interface DashboardProps {
   jobs: Job[];
   crew: CrewMember[]; 
   currentUser?: { id: string; role: 'ADMIN' | 'MANAGER' | 'TECH' };
   onUpdateCrew?: (member: CrewMember) => void;
+  tasks?: Task[];
+  onAddTask?: (task: Task) => void;
+  onUpdateTask?: (task: Task) => void;
+  onDeleteTask?: (id: string) => void;
 }
 
 // Mock Fleet Limits for Conflict Detection
@@ -19,7 +22,7 @@ const FLEET_LIMITS: Record<string, number> = {
     [VehicleType.MOTRICE]: 0 // Always external
 };
 
-export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUser, onUpdateCrew }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUser, onUpdateCrew, tasks = [], onAddTask, onUpdateTask, onDeleteTask }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   
   // Weekly Navigation State
@@ -32,6 +35,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
   const [newExpJobId, setNewExpJobId] = useState('');
   const [newExpCategory, setNewExpCategory] = useState('Viaggio');
 
+  // ADMIN TASK STATE
+  const [isAdminTaskModalOpen, setIsAdminTaskModalOpen] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskAssignee, setNewTaskAssignee] = useState('');
+  const [newTaskDeadline, setNewTaskDeadline] = useState('');
+  const [newTaskJobId, setNewTaskJobId] = useState('');
+
   // --- DATA PREP ---
   const myCrewProfile = crew.find(c => c.id === currentUser?.id);
   
@@ -43,6 +53,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
         j.status !== JobStatus.CANCELLED
       ).sort((a,b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
   }, [jobs, currentUser]);
+
+  // Tasks Assigned to Me (for Tech)
+  const myTasks = useMemo(() => {
+      if (!currentUser) return [];
+      return tasks.filter(t => t.assignedTo === currentUser.id && t.status === 'PENDING').sort((a,b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime());
+  }, [tasks, currentUser]);
 
   // --- HANDLERS FOR TECH ---
   const handleCreateExpense = () => {
@@ -79,6 +95,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
       setNewExpJobId('');
   };
 
+  const handleAdminAddTask = () => {
+      if (!newTaskTitle || !newTaskAssignee || !onAddTask) return;
+      const task: Task = {
+          id: Date.now().toString(),
+          title: newTaskTitle,
+          assignedTo: newTaskAssignee,
+          jobId: newTaskJobId || undefined,
+          createdBy: currentUser?.id || 'system',
+          deadline: newTaskDeadline || new Date().toISOString().split('T')[0],
+          status: 'PENDING'
+      };
+      onAddTask(task);
+      setIsAdminTaskModalOpen(false);
+      setNewTaskTitle(''); setNewTaskAssignee(''); setNewTaskJobId(''); setNewTaskDeadline('');
+  };
+
   // --- ADMIN LOGIC HELPERS ---
   const getStartOfWeek = (offset: number) => {
       const d = new Date();
@@ -100,11 +132,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
 
   // --- RENDER TECH DASHBOARD ---
   if (currentUser?.role === 'TECH') {
-      // ... (Existing Tech Dashboard Logic kept intact for brevity, same as previous version)
       const pendingTotal = (myCrewProfile?.expenses || []).filter(e => e.status === ApprovalStatus.PENDING).reduce((acc, e) => acc + e.amount, 0);
       const approvedTotal = (myCrewProfile?.expenses || []).filter(e => e.status === ApprovalStatus.APPROVED_MANAGER || e.status === ApprovalStatus.COMPLETED).reduce((acc, e) => acc + e.amount, 0);
-      const myWorkload = calculateMissedRestDaysHelper(jobs, currentUser.id, new Date().getFullYear(), new Date().getMonth(), myCrewProfile?.tasks || [], myCrewProfile?.absences || []);
-
+      
       return (
           <div className="space-y-6 animate-fade-in h-full flex flex-col overflow-y-auto pb-10">
               <div className="flex items-center gap-4 mb-2">
@@ -117,68 +147,89 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
                    </div>
               </div>
 
-              <div className={`p-4 rounded-xl border flex items-start gap-4 ${myWorkload.missedRest > 0 ? 'bg-orange-900/20 border-orange-800' : 'bg-green-900/20 border-green-800'}`}>
-                  {myWorkload.missedRest > 0 ? <AlertTriangle size={24} className="text-orange-500 mt-1"/> : <CheckCircle size={24} className="text-green-500 mt-1"/>}
-                  <div>
-                      <h4 className={`font-bold ${myWorkload.missedRest > 0 ? 'text-orange-400' : 'text-green-400'}`}>Stato Riposi</h4>
-                      <p className="text-gray-300 text-sm mt-1">
-                          Hai lavorato <b>{myWorkload.totalWorked}</b> giorni questo mese.
-                          {myWorkload.missedRest > 0 
-                            ? ` ⚠ Attenzione: Hai accumulato ${myWorkload.missedRest} giorni di mancato riposo da recuperare.` 
-                            : ' ✅ Sei in linea con i riposi (5+2).'}
-                      </p>
-                  </div>
-              </div>
-
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* LEFT: TASKS & JOBS */}
                   <div className="lg:col-span-2 space-y-6">
+                      
+                      {/* MY TASKS WIDGET */}
+                      <div className="bg-glr-800 border border-glr-700 rounded-xl p-5 shadow-lg">
+                          <h3 className="text-glr-accent font-bold uppercase text-sm mb-4 flex items-center gap-2"><ClipboardCheck size={16}/> I Miei Task</h3>
+                          <div className="space-y-3">
+                              {myTasks.length === 0 && <p className="text-gray-500 italic">Non hai task in sospeso.</p>}
+                              {myTasks.map(task => {
+                                  const job = jobs.find(j => j.id === task.jobId);
+                                  return (
+                                      <div key={task.id} className="bg-glr-900/50 border border-glr-700 p-4 rounded-lg flex justify-between items-center hover:border-glr-500 transition-colors">
+                                          <div>
+                                              <h4 className="font-bold text-white text-base">{task.title}</h4>
+                                              <div className="text-xs text-gray-400 mt-1">
+                                                  Scadenza: <span className={new Date(task.deadline) < new Date() ? 'text-red-400 font-bold' : 'text-gray-300'}>{new Date(task.deadline).toLocaleDateString()}</span>
+                                                  {job && <span className="ml-2 bg-glr-800 px-1.5 py-0.5 rounded text-blue-300">{job.title}</span>}
+                                              </div>
+                                          </div>
+                                          <button onClick={() => onUpdateTask && onUpdateTask({...task, status: 'COMPLETED'})} className="px-3 py-1.5 bg-glr-700 hover:bg-green-600 text-white rounded text-xs font-bold transition-colors flex items-center gap-2">
+                                              <CheckCircle size={14}/> Completa
+                                          </button>
+                                      </div>
+                                  )
+                              })}
+                          </div>
+                      </div>
+
                       <div className="bg-glr-800 border border-glr-700 rounded-xl p-5 shadow-lg">
                           <h3 className="text-glr-accent font-bold uppercase text-sm mb-4 flex items-center gap-2"><Briefcase size={16}/> I Miei Prossimi Lavori</h3>
                           <div className="space-y-3">
                               {myJobs.length === 0 && <p className="text-gray-500 italic">Nessun lavoro in programma.</p>}
                               {myJobs.map(job => (
-                                  <div key={job.id} className="bg-glr-900/50 border border-glr-700 p-4 rounded-lg flex justify-between items-center">
+                                  <div key={job.id} className="bg-glr-900/50 border border-glr-700 p-4 rounded-lg flex justify-between items-center hover:border-glr-500 transition-colors">
                                       <div>
                                           <h4 className="font-bold text-white text-lg">{job.title}</h4>
                                           <div className="text-sm text-gray-400 flex gap-2 mt-1">
-                                              <span>{new Date(job.startDate).toLocaleDateString()} - {new Date(job.endDate).toLocaleDateString()}</span>
-                                              <span>• {job.location}</span>
+                                              <span className="flex items-center gap-1"><CalIcon size={12}/> {new Date(job.startDate).toLocaleDateString()} - {new Date(job.endDate).toLocaleDateString()}</span>
+                                              <span className="flex items-center gap-1"><Truck size={12}/> {job.location}</span>
                                           </div>
                                       </div>
-                                      <span className={`px-2 py-1 text-xs font-bold rounded uppercase ${job.status === JobStatus.CONFIRMED ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'}`}>{job.status}</span>
+                                      <span className={`px-2 py-1 text-xs font-bold rounded uppercase ${job.status === JobStatus.CONFIRMED ? 'bg-green-600 text-white' : job.status === JobStatus.IN_PROGRESS ? 'bg-blue-600 text-white' : 'bg-gray-600 text-white'}`}>
+                                          {job.status === JobStatus.IN_PROGRESS ? 'In Corso' : job.status}
+                                      </span>
                                   </div>
                               ))}
                           </div>
                       </div>
                   </div>
                   
-                  {/* EXPENSES SECTION */}
-                  <div className="bg-glr-800 border border-glr-700 rounded-xl p-5 shadow-lg flex flex-col">
+                  {/* RIGHT: EXPENSES SECTION */}
+                  <div className="bg-glr-800 border border-glr-700 rounded-xl p-5 shadow-lg flex flex-col h-fit">
                        <div className="flex justify-between items-center mb-6">
                            <h3 className="text-glr-accent font-bold uppercase text-sm flex items-center gap-2"><Wallet size={16}/> Le Mie Spese</h3>
-                           <button onClick={() => setIsExpenseModalOpen(true)} className="bg-glr-accent text-glr-900 p-1.5 rounded hover:bg-amber-400 transition-colors"><Plus size={18}/></button>
+                           <button onClick={() => setIsExpenseModalOpen(true)} className="bg-glr-accent text-glr-900 p-1.5 rounded hover:bg-amber-400 transition-colors" title="Nuova Richiesta"><Plus size={18}/></button>
                        </div>
+                       
                        <div className="grid grid-cols-2 gap-4 mb-6">
-                           <div className="bg-glr-900 p-3 rounded border border-glr-700">
-                               <p className="text-xs text-gray-500 uppercase">In Attesa</p>
-                               <p className="text-xl font-bold text-yellow-500">€ {pendingTotal.toFixed(2)}</p>
+                           <div className="bg-glr-900 p-3 rounded border border-glr-700 text-center">
+                               <p className="text-xs text-gray-500 uppercase font-bold">In Attesa</p>
+                               <p className="text-xl font-bold text-yellow-500 mt-1">€ {pendingTotal.toFixed(2)}</p>
                            </div>
-                           <div className="bg-glr-900 p-3 rounded border border-glr-700">
-                               <p className="text-xs text-gray-500 uppercase">Approvati</p>
-                               <p className="text-xl font-bold text-green-500">€ {approvedTotal.toFixed(2)}</p>
+                           <div className="bg-glr-900 p-3 rounded border border-glr-700 text-center">
+                               <p className="text-xs text-gray-500 uppercase font-bold">Approvati</p>
+                               <p className="text-xl font-bold text-green-500 mt-1">€ {approvedTotal.toFixed(2)}</p>
                            </div>
                        </div>
+
                        <div className="flex-1 overflow-y-auto pr-1 space-y-3 max-h-[400px]">
-                           {(myCrewProfile?.expenses || []).length === 0 && <p className="text-gray-500 italic text-sm text-center">Nessuna spesa recente.</p>}
+                           {(myCrewProfile?.expenses || []).length === 0 && <p className="text-gray-500 italic text-sm text-center py-4">Nessuna spesa recente.</p>}
                            {[...(myCrewProfile?.expenses || [])].reverse().map(exp => (
-                               <div key={exp.id} className="border-b border-glr-700 pb-3 last:border-0">
+                               <div key={exp.id} className="border-b border-glr-700 pb-3 last:border-0 hover:bg-glr-900/30 p-2 rounded transition-colors">
                                    <div className="flex justify-between items-start mb-1">
-                                       <span className="font-bold text-white text-sm">{exp.description}</span>
+                                       <div>
+                                            <span className="font-bold text-white text-sm block">{exp.description}</span>
+                                            <span className="text-[10px] text-gray-500">{exp.jobTitle || 'Nessun lavoro'}</span>
+                                       </div>
                                        <span className="font-mono text-white font-bold">€ {exp.amount}</span>
                                    </div>
-                                   <div className="flex justify-between items-center text-xs">
+                                   <div className="flex justify-between items-center text-xs mt-1">
                                        <span className="text-gray-400">{new Date(exp.date).toLocaleDateString()}</span>
-                                       <span className={`px-1.5 py-0.5 rounded border uppercase text-[10px] ${exp.status === ApprovalStatus.PENDING ? 'text-yellow-400 border-yellow-800' : 'text-green-400 border-green-800'}`}>{exp.status}</span>
+                                       <span className={`px-1.5 py-0.5 rounded border uppercase text-[10px] ${exp.status === ApprovalStatus.PENDING ? 'text-yellow-400 border-yellow-800 bg-yellow-900/20' : exp.status === ApprovalStatus.REJECTED ? 'text-red-400 border-red-800 bg-red-900/20' : 'text-green-400 border-green-800 bg-green-900/20'}`}>{exp.status}</span>
                                    </div>
                                </div>
                            ))}
@@ -196,20 +247,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
                           </div>
                           <div className="space-y-4">
                               <div>
-                                  <label className="block text-xs text-gray-400 mb-1">Lavoro di Riferimento</label>
-                                  <select value={newExpJobId} onChange={e => setNewExpJobId(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm">
+                                  <label className="block text-xs text-gray-400 mb-1 font-bold">Lavoro di Riferimento</label>
+                                  <select value={newExpJobId} onChange={e => setNewExpJobId(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm focus:border-glr-accent outline-none">
                                       <option value="">-- Seleziona Lavoro --</option>
                                       {myJobs.map(j => <option key={j.id} value={j.id}>{j.title}</option>)}
                                   </select>
                               </div>
                               <div className="grid grid-cols-2 gap-4">
                                   <div>
-                                      <label className="block text-xs text-gray-400 mb-1">Importo (€)</label>
-                                      <input type="number" step="0.01" value={newExpAmount} onChange={e => setNewExpAmount(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm"/>
+                                      <label className="block text-xs text-gray-400 mb-1 font-bold">Importo (€)</label>
+                                      <input type="number" step="0.01" value={newExpAmount} onChange={e => setNewExpAmount(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm focus:border-glr-accent outline-none" placeholder="0.00"/>
                                   </div>
                                   <div>
-                                      <label className="block text-xs text-gray-400 mb-1">Categoria</label>
-                                      <select value={newExpCategory} onChange={e => setNewExpCategory(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm">
+                                      <label className="block text-xs text-gray-400 mb-1 font-bold">Categoria</label>
+                                      <select value={newExpCategory} onChange={e => setNewExpCategory(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm focus:border-glr-accent outline-none">
                                           <option>Viaggio</option>
                                           <option>Pasto</option>
                                           <option>Alloggio</option>
@@ -219,11 +270,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
                                   </div>
                               </div>
                               <div>
-                                  <label className="block text-xs text-gray-400 mb-1">Descrizione</label>
-                                  <input type="text" value={newExpDesc} onChange={e => setNewExpDesc(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm" placeholder="Es. Benzina Milano"/>
+                                  <label className="block text-xs text-gray-400 mb-1 font-bold">Descrizione</label>
+                                  <input type="text" value={newExpDesc} onChange={e => setNewExpDesc(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm focus:border-glr-accent outline-none" placeholder="Es. Benzina Milano, Pranzo Crew..."/>
                               </div>
+                              
+                              {/* Placeholder for File Upload */}
+                              <div className="border-2 border-dashed border-glr-600 rounded-lg p-4 text-center hover:bg-glr-700/50 transition-colors cursor-pointer">
+                                  <FileText className="mx-auto text-gray-500 mb-1"/>
+                                  <span className="text-xs text-gray-400">Carica Giustificativo (Foto/PDF)</span>
+                              </div>
+
                               <div className="pt-2">
-                                  <button onClick={handleCreateExpense} disabled={!newExpAmount || !newExpDesc || !newExpJobId} className="w-full bg-glr-accent text-glr-900 font-bold py-2 rounded hover:bg-amber-400 disabled:opacity-50 transition-colors">Invia Richiesta</button>
+                                  <button onClick={handleCreateExpense} disabled={!newExpAmount || !newExpDesc || !newExpJobId} className="w-full bg-glr-accent text-glr-900 font-bold py-3 rounded hover:bg-amber-400 disabled:opacity-50 transition-colors">Invia Richiesta</button>
                               </div>
                           </div>
                       </div>
@@ -237,12 +295,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
 
   // 1. Task & Priorities Logic
   const priorityTasks = useMemo(() => {
-      const alerts: { id: string, type: 'CRITICAL' | 'WARNING' | 'INFO', msg: string, sub: string, job: Job }[] = [];
+      const alerts: { id: string, type: 'CRITICAL' | 'WARNING' | 'INFO', msg: string, sub: string, job?: Job, task?: Task }[] = [];
       const today = new Date().toISOString().split('T')[0];
       const nextWeek = new Date(); 
       nextWeek.setDate(nextWeek.getDate() + 7);
       const nextWeekStr = nextWeek.toISOString().split('T')[0];
 
+      // Scan Jobs
       jobs.forEach(j => {
           if (j.status === JobStatus.CANCELLED || j.status === JobStatus.COMPLETED) return;
 
@@ -265,12 +324,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
           }
       });
 
+      // Scan Tasks
+      tasks.forEach(t => {
+          if(t.status === 'PENDING') {
+              const assigneeName = crew.find(c => c.id === t.assignedTo)?.name || 'Crew';
+              if (t.deadline < today) {
+                  alerts.push({ id: `task-${t.id}`, type: 'CRITICAL', msg: `Task Scaduto (${assigneeName})`, sub: t.title, task: t });
+              } else if (t.deadline === today) {
+                  alerts.push({ id: `task-${t.id}`, type: 'WARNING', msg: `Scade Oggi (${assigneeName})`, sub: t.title, task: t });
+              }
+          }
+      });
+
       return alerts.sort((a,b) => {
           if (a.type === 'CRITICAL' && b.type !== 'CRITICAL') return -1;
           if (a.type !== 'CRITICAL' && b.type === 'CRITICAL') return 1;
-          return new Date(a.job.startDate).getTime() - new Date(b.job.startDate).getTime();
+          return 0;
       });
-  }, [jobs]);
+  }, [jobs, tasks, crew]);
 
   // 2. Weekly Agenda Data
   const weeklyJobs = useMemo(() => {
@@ -349,10 +420,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
        
        {/* 1. TASK & PRIORITIES WIDGET */}
        <div className="bg-glr-800 border border-glr-700 rounded-xl p-4 shadow-lg shrink-0">
-           <h3 className="text-white font-bold flex items-center gap-2 mb-4">
-               <AlertCircle className="text-glr-accent"/> Task & Priorità
-               <span className="text-xs font-normal text-gray-400 bg-glr-900 px-2 py-0.5 rounded-full">{priorityTasks.length} avvisi</span>
-           </h3>
+           <div className="flex justify-between items-center mb-4">
+               <h3 className="text-white font-bold flex items-center gap-2">
+                   <AlertCircle className="text-glr-accent"/> Task & Priorità
+                   <span className="text-xs font-normal text-gray-400 bg-glr-900 px-2 py-0.5 rounded-full">{priorityTasks.length} avvisi</span>
+               </h3>
+               {currentUser?.role !== 'TECH' && (
+                   <button onClick={() => setIsAdminTaskModalOpen(true)} className="bg-glr-900 border border-glr-600 text-gray-300 px-3 py-1 rounded text-xs hover:bg-glr-700 font-bold flex items-center gap-2"><Plus size={14}/> Nuovo Task</button>
+               )}
+           </div>
            
            {priorityTasks.length === 0 ? (
                <div className="flex items-center gap-3 text-green-400 p-4 bg-green-900/10 border border-green-900/30 rounded-lg">
@@ -367,15 +443,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
                            <div className={`mt-1 ${alert.type === 'CRITICAL' ? 'text-red-500' : alert.type === 'WARNING' ? 'text-orange-500' : 'text-blue-500'}`}>
                                {alert.type === 'CRITICAL' ? <AlertCircle size={20}/> : <AlertTriangle size={20}/>}
                            </div>
-                           <div>
+                           <div className="flex-1 min-w-0">
                                <h4 className={`font-bold text-sm ${alert.type === 'CRITICAL' ? 'text-red-300' : alert.type === 'WARNING' ? 'text-orange-300' : 'text-blue-300'}`}>{alert.msg}</h4>
-                               <p className="text-white text-xs font-bold mt-1 truncate max-w-[180px]" title={alert.job.title}>{alert.job.title}</p>
+                               <p className="text-white text-xs font-bold mt-1 truncate" title={alert.job?.title || alert.task?.title}>{alert.job?.title || alert.task?.title}</p>
                                <p className="text-gray-400 text-[10px]">{alert.sub}</p>
                            </div>
-                           {/* Quick Action Button (Mock) */}
-                           <button className="absolute bottom-2 right-2 p-1.5 bg-glr-900 rounded-full hover:bg-glr-700 text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity">
-                               <ArrowRight size={14}/>
-                           </button>
+                           {/* Quick Action: Mark Task Done */}
+                           {alert.task && onUpdateTask && (
+                               <button onClick={() => onUpdateTask({...alert.task!, status: 'COMPLETED'})} className="absolute bottom-2 right-2 p-1.5 bg-green-600 rounded-full hover:bg-green-500 text-white shadow-sm" title="Completa">
+                                   <CheckCircle size={14}/>
+                               </button>
+                           )}
                        </div>
                    ))}
                </div>
@@ -492,7 +570,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
                                    <div className="flex flex-wrap gap-2">
                                        {Object.entries(usage).map(([type, count]) => {
                                            const limit = FLEET_LIMITS[type] || 99;
-                                           const isConflict = count > limit;
+                                           const isConflict = (count as number) > limit;
                                            
                                            return (
                                                <div key={type} className={`text-[10px] px-2 py-1 rounded border flex items-center gap-1 font-bold 
@@ -514,6 +592,43 @@ export const Dashboard: React.FC<DashboardProps> = ({ jobs, crew = [], currentUs
 
            </div>
        </div>
+
+       {/* ADMIN TASK MODAL */}
+       {isAdminTaskModalOpen && (
+           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+               <div className="bg-glr-800 rounded-xl border border-glr-600 w-full max-w-sm shadow-2xl animate-fade-in p-6">
+                   <h3 className="text-lg font-bold text-white mb-4">Nuovo Task Admin</h3>
+                   <div className="space-y-4">
+                       <div>
+                           <label className="block text-xs text-gray-400 mb-1">Titolo Task</label>
+                           <input type="text" value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm"/>
+                       </div>
+                       <div>
+                           <label className="block text-xs text-gray-400 mb-1">Assegna a</label>
+                           <select value={newTaskAssignee} onChange={e => setNewTaskAssignee(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm">
+                               <option value="">-- Seleziona --</option>
+                               {crew.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                           </select>
+                       </div>
+                       <div>
+                           <label className="block text-xs text-gray-400 mb-1">Lavoro Collegato (Opzionale)</label>
+                           <select value={newTaskJobId} onChange={e => setNewTaskJobId(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm">
+                               <option value="">-- Nessun Lavoro --</option>
+                               {jobs.filter(j => j.status !== 'Completato').map(j => <option key={j.id} value={j.id}>{j.title}</option>)}
+                           </select>
+                       </div>
+                       <div>
+                           <label className="block text-xs text-gray-400 mb-1">Scadenza</label>
+                           <input type="date" value={newTaskDeadline} onChange={e => setNewTaskDeadline(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm"/>
+                       </div>
+                       <div className="flex gap-2 pt-2">
+                           <button onClick={() => setIsAdminTaskModalOpen(false)} className="flex-1 bg-glr-700 hover:bg-white hover:text-glr-900 text-white rounded py-2">Annulla</button>
+                           <button onClick={handleAdminAddTask} disabled={!newTaskTitle || !newTaskAssignee} className="flex-1 bg-glr-accent text-glr-900 font-bold rounded py-2 hover:bg-amber-400 disabled:opacity-50">Crea</button>
+                       </div>
+                   </div>
+               </div>
+           </div>
+       )}
     </div>
   );
 };

@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef } from 'react';
 import { Location } from '../types';
 import { MapPin, Phone, Zap, Network, Truck, Monitor, Plus, Edit3, Trash2, Save, X, ExternalLink, Speaker, Box, FileText, Ruler, Eye, Image as ImageIcon, ChevronLeft, ChevronRight, Search, Upload } from 'lucide-react';
@@ -48,7 +47,7 @@ export const Locations: React.FC<LocationsProps> = ({ locations, onAddLocation, 
       const files = e.target.files;
       if (!files || !activeLoc) return;
 
-      Array.from(files).forEach(file => {
+      Array.from(files).forEach((file: File) => {
           const reader = new FileReader();
           reader.onload = (ev) => {
               if (ev.target?.result) {

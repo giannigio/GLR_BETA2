@@ -1,5 +1,4 @@
 
-
 import React, { useState } from 'react';
 import { AppSettings, RolePermissions } from '../types';
 import { Save, Building2, DollarSign, Calendar, Database, AlertCircle, CheckCircle, Shield, Lock, Briefcase, Plus, Trash2, Tag, Eye, Settings as SettingsIcon } from 'lucide-react';
@@ -61,9 +60,12 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onUpdateSettings }
       }));
   };
 
-  // Menu items mapping
-  const MENU_SECTIONS: { id: keyof RolePermissions; label: string }[] = [
+  // --- PERMISSION DEFINITIONS ---
+  
+  // 1. Menu Visibility (Navigation)
+  const VIEW_PERMISSIONS: { id: keyof RolePermissions; label: string }[] = [
       { id: 'canViewDashboard', label: 'Dashboard' },
+      { id: 'canViewTasks', label: 'Task & Attività' },
       { id: 'canViewJobs', label: 'Schede Lavoro' },
       { id: 'canViewKits', label: 'Kit & Liste' },
       { id: 'canViewRentals', label: 'Noleggi' },
@@ -72,6 +74,18 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onUpdateSettings }
       { id: 'canViewCrew', label: 'Crew & Tecnici' },
       { id: 'canViewExpenses', label: 'Rimborsi' },
       { id: 'canViewCompany', label: 'Gestione Azienda' },
+  ];
+
+  // 2. Operational Actions
+  const ACTION_PERMISSIONS: { id: keyof RolePermissions; label: string }[] = [
+      { id: 'canManageJobs', label: 'Crea/Modifica Schede Lavoro' },
+      { id: 'canDeleteJobs', label: 'Elimina Schede Lavoro' },
+      { id: 'canViewBudget', label: 'Visualizza Budget Economico' },
+      { id: 'canManageCrew', label: 'Gestione Anagrafiche Crew' },
+      { id: 'canManageInventory', label: 'Gestione Magazzino (Add/Edit)' },
+      { id: 'canManageLocations', label: 'Gestione Locations (Add/Edit)' },
+      { id: 'canManageRentals', label: 'Gestione Noleggi' },
+      { id: 'canManageExpenses', label: 'Gestione/Approvazione Rimborsi' },
   ];
 
   return (
@@ -261,7 +275,7 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onUpdateSettings }
                                             <div>
                                                 <h5 className="text-xs font-bold text-gray-500 uppercase mb-3 flex items-center gap-2"><Eye size={12}/> Visibilità Menu (Sezioni Abilitate)</h5>
                                                 <div className="grid grid-cols-2 gap-2">
-                                                    {MENU_SECTIONS.map(item => (
+                                                    {VIEW_PERMISSIONS.map(item => (
                                                         <label key={item.id} className={`flex items-center gap-2 cursor-pointer p-2 rounded transition-colors ${localSettings.permissions.MANAGER[item.id] ? 'bg-glr-800' : 'hover:bg-glr-800/50'}`}>
                                                             <input type="checkbox" checked={localSettings.permissions.MANAGER[item.id]} onChange={() => updatePermission('MANAGER', item.id)} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/>
                                                             <span className={`text-sm ${localSettings.permissions.MANAGER[item.id] ? 'text-white font-medium' : 'text-gray-500'}`}>{item.label}</span>
@@ -274,12 +288,12 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onUpdateSettings }
                                             <div>
                                                 <h5 className="text-xs font-bold text-gray-500 uppercase mb-3 flex items-center gap-2"><SettingsIcon size={12}/> Permessi Operativi</h5>
                                                 <div className="space-y-2 pl-2 border-l-2 border-glr-800">
-                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.MANAGER.canManageJobs} onChange={() => updatePermission('MANAGER', 'canManageJobs')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Crea/Modifica Lavori</span></label>
-                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.MANAGER.canDeleteJobs} onChange={() => updatePermission('MANAGER', 'canDeleteJobs')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Elimina Lavori</span></label>
-                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.MANAGER.canViewBudget} onChange={() => updatePermission('MANAGER', 'canViewBudget')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Visualizza Budget Economico</span></label>
-                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.MANAGER.canManageCrew} onChange={() => updatePermission('MANAGER', 'canManageCrew')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Gestione Crew (Anagrafiche)</span></label>
-                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.MANAGER.canManageInventory} onChange={() => updatePermission('MANAGER', 'canManageInventory')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Gestione Magazzino</span></label>
-                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.MANAGER.canManageRentals} onChange={() => updatePermission('MANAGER', 'canManageRentals')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Gestione Noleggi</span></label>
+                                                    {ACTION_PERMISSIONS.map(action => (
+                                                        <label key={action.id} className="flex items-center gap-3 cursor-pointer">
+                                                            <input type="checkbox" checked={localSettings.permissions.MANAGER[action.id]} onChange={() => updatePermission('MANAGER', action.id)} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/>
+                                                            <span className={`text-xs ${localSettings.permissions.MANAGER[action.id] ? 'text-gray-200' : 'text-gray-500'}`}>{action.label}</span>
+                                                        </label>
+                                                    ))}
                                                 </div>
                                             </div>
                                         </div>
@@ -294,7 +308,7 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onUpdateSettings }
                                             <div>
                                                 <h5 className="text-xs font-bold text-gray-500 uppercase mb-3 flex items-center gap-2"><Eye size={12}/> Visibilità Menu (Sezioni Abilitate)</h5>
                                                 <div className="grid grid-cols-2 gap-2">
-                                                    {MENU_SECTIONS.map(item => (
+                                                    {VIEW_PERMISSIONS.map(item => (
                                                         <label key={item.id} className={`flex items-center gap-2 cursor-pointer p-2 rounded transition-colors ${localSettings.permissions.TECH[item.id] ? 'bg-glr-800' : 'hover:bg-glr-800/50'}`}>
                                                             <input type="checkbox" checked={localSettings.permissions.TECH[item.id]} onChange={() => updatePermission('TECH', item.id)} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/>
                                                             <span className={`text-sm ${localSettings.permissions.TECH[item.id] ? 'text-white font-medium' : 'text-gray-500'}`}>{item.label}</span>
@@ -307,10 +321,12 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onUpdateSettings }
                                             <div>
                                                 <h5 className="text-xs font-bold text-gray-500 uppercase mb-3 flex items-center gap-2"><SettingsIcon size={12}/> Permessi Operativi</h5>
                                                 <div className="space-y-2 pl-2 border-l-2 border-glr-800">
-                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.TECH.canManageJobs} onChange={() => updatePermission('TECH', 'canManageJobs')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Crea/Modifica Lavori</span></label>
-                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.TECH.canViewBudget} onChange={() => updatePermission('TECH', 'canViewBudget')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Visualizza Budget Economico</span></label>
-                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.TECH.canManageCrew} onChange={() => updatePermission('TECH', 'canManageCrew')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Gestione Crew</span></label>
-                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.TECH.canManageInventory} onChange={() => updatePermission('TECH', 'canManageInventory')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Gestione Magazzino</span></label>
+                                                    {ACTION_PERMISSIONS.map(action => (
+                                                        <label key={action.id} className="flex items-center gap-3 cursor-pointer">
+                                                            <input type="checkbox" checked={localSettings.permissions.TECH[action.id]} onChange={() => updatePermission('TECH', action.id)} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/>
+                                                            <span className={`text-xs ${localSettings.permissions.TECH[action.id] ? 'text-gray-200' : 'text-gray-500'}`}>{action.label}</span>
+                                                        </label>
+                                                    ))}
                                                 </div>
                                             </div>
                                         </div>

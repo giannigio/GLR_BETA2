@@ -1,5 +1,9 @@
 
 
+
+
+
+
 import React, { useState, useEffect } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { Jobs } from './components/Jobs';
@@ -11,13 +15,14 @@ import { Settings } from './components/Settings';
 import { StandardLists } from './components/StandardLists';
 import { Rentals } from './components/Rentals';
 import { CompanyManagement } from './components/CompanyManagement';
+import { Tasks } from './components/Tasks';
 import { Login } from './components/Login';
-import { Job, CrewMember, Location, InventoryItem, Notification, SystemRole, AppSettings, StandardMaterialList, Rental } from './types';
+import { Job, CrewMember, Location, InventoryItem, Notification, SystemRole, AppSettings, StandardMaterialList, Rental, Task } from './types';
 import { api } from './services/api'; 
-import { LayoutDashboard, ClipboardList, Users, Settings as SettingsIcon, LogOut, Menu, X, Loader2, MapPin, Package, Bell, Info, AlertTriangle, CheckCircle, FileText, Boxes, Building2, ShoppingBag } from 'lucide-react';
+import { LayoutDashboard, ClipboardList, Users, Settings as SettingsIcon, LogOut, Menu, X, Loader2, MapPin, Package, Bell, Info, AlertTriangle, CheckCircle, FileText, Boxes, Building2, ShoppingBag, ClipboardCheck } from 'lucide-react';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'JOBS' | 'STD_LISTS' | 'RENTALS' | 'INVENTORY' | 'LOCATIONS' | 'CREW' | 'EXPENSES' | 'SETTINGS' | 'COMPANY'>('DASHBOARD');
+  const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'JOBS' | 'TASKS' | 'STD_LISTS' | 'RENTALS' | 'INVENTORY' | 'LOCATIONS' | 'CREW' | 'EXPENSES' | 'SETTINGS' | 'COMPANY'>('DASHBOARD');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   
@@ -28,6 +33,7 @@ const App: React.FC = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [standardLists, setStandardLists] = useState<StandardMaterialList[]>([]);
   const [rentals, setRentals] = useState<Rental[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -48,13 +54,14 @@ const App: React.FC = () => {
 
     const loadData = async () => {
       try {
-        const [fetchedJobs, fetchedCrew, fetchedLocations, fetchedInventory, fetchedStdLists, fetchedRentals, fetchedNotifs, fetchedSettings] = await Promise.all([
+        const [fetchedJobs, fetchedCrew, fetchedLocations, fetchedInventory, fetchedStdLists, fetchedRentals, fetchedTasks, fetchedNotifs, fetchedSettings] = await Promise.all([
           api.getJobs(),
           api.getCrew(),
           api.getLocations(),
           api.getInventory(),
           api.getStandardLists(),
           api.getRentals(),
+          api.getTasks(),
           api.getNotifications(),
           api.getSettings()
         ]);
@@ -64,6 +71,7 @@ const App: React.FC = () => {
         setInventory(fetchedInventory);
         setStandardLists(fetchedStdLists);
         setRentals(fetchedRentals);
+        setTasks(fetchedTasks);
         setNotifications(fetchedNotifs);
         setSettings(fetchedSettings);
       } catch (error) {
@@ -166,8 +174,23 @@ const App: React.FC = () => {
       setSettings(updated);
   };
 
+  const handleAddTask = async (task: Task) => {
+      const saved = await api.createTask(task);
+      setTasks(prev => [...prev, saved]);
+  };
+
+  const handleUpdateTask = async (task: Task) => {
+      await api.updateTask(task);
+      setTasks(prev => prev.map(t => t.id === task.id ? task : t));
+  };
+
+  const handleDeleteTask = async (id: string) => {
+      await api.deleteTask(id);
+      setTasks(prev => prev.filter(t => t.id !== id));
+  };
+
   // Permissions Check
-  const canAccess = (section: 'DASHBOARD' | 'JOBS' | 'STD_LISTS' | 'RENTALS' | 'INVENTORY' | 'LOCATIONS' | 'CREW' | 'EXPENSES' | 'SETTINGS' | 'COMPANY') => {
+  const canAccess = (section: 'DASHBOARD' | 'JOBS' | 'TASKS' | 'STD_LISTS' | 'RENTALS' | 'INVENTORY' | 'LOCATIONS' | 'CREW' | 'EXPENSES' | 'SETTINGS' | 'COMPANY') => {
       if (!currentUser || !settings?.permissions) return false;
       if (currentUser.role === 'ADMIN') return true;
       
@@ -176,6 +199,7 @@ const App: React.FC = () => {
 
       if (section === 'DASHBOARD') return perms.canViewDashboard;
       if (section === 'JOBS') return perms.canViewJobs;
+      if (section === 'TASKS') return perms.canViewTasks;
       if (section === 'STD_LISTS') return perms.canViewKits;
       if (section === 'RENTALS') return perms.canViewRentals;
       if (section === 'INVENTORY') return perms.canViewInventory;
@@ -228,8 +252,9 @@ const App: React.FC = () => {
         </div>
 
         <nav className="flex-1 space-y-2 overflow-y-auto">
-          {/* MENU ORDER: Dashboard, Schede Lavoro, Kit, Noleggi, Magazzino, Locations, Crew, Rimborsi, Gestione Azienda */}
+          {/* MENU ORDER: Dashboard, Tasks, Schede Lavoro, Kit, Noleggi, Magazzino, Locations, Crew, Rimborsi, Gestione Azienda */}
           <NavItem id="DASHBOARD" icon={LayoutDashboard} label="Dashboard" />
+          <NavItem id="TASKS" icon={ClipboardCheck} label="Task & Attività" />
           <NavItem id="JOBS" icon={ClipboardList} label="Schede Lavoro" />
           <NavItem id="STD_LISTS" icon={Boxes} label="Kit & Liste" />
           <NavItem id="RENTALS" icon={ShoppingBag} label="Noleggi" />
@@ -296,6 +321,7 @@ const App: React.FC = () => {
         {isMobileMenuOpen && (
             <div className="md:hidden fixed inset-0 top-16 bg-glr-900 z-40 p-4 space-y-2">
             <NavItem id="DASHBOARD" icon={LayoutDashboard} label="Dashboard" />
+            <NavItem id="TASKS" icon={ClipboardCheck} label="Task & Attività" />
             <NavItem id="JOBS" icon={ClipboardList} label="Schede Lavoro" />
             <NavItem id="STD_LISTS" icon={Boxes} label="Kit & Liste" />
             <NavItem id="RENTALS" icon={ShoppingBag} label="Noleggi" />
@@ -318,8 +344,9 @@ const App: React.FC = () => {
 
         <main className="flex-1 overflow-auto p-4 md:p-8 bg-[#0b1120]">
             <div className="max-w-7xl mx-auto h-full">
-            {activeTab === 'DASHBOARD' && canAccess('DASHBOARD') && <Dashboard jobs={jobs} crew={crew} currentUser={currentUser} onUpdateCrew={handleUpdateCrew} />}
-            {activeTab === 'JOBS' && canAccess('JOBS') && <Jobs jobs={jobs} crew={crew} locations={locations} inventory={inventory} standardLists={standardLists} onAddJob={handleAddJob} onUpdateJob={handleUpdateJob} onDeleteJob={handleDeleteJob} currentUser={currentUser} settings={settings} />}
+            {activeTab === 'DASHBOARD' && canAccess('DASHBOARD') && <Dashboard jobs={jobs} crew={crew} currentUser={currentUser} onUpdateCrew={handleUpdateCrew} tasks={tasks} onAddTask={handleAddTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} />}
+            {activeTab === 'TASKS' && canAccess('TASKS') && <Tasks tasks={tasks} jobs={jobs} crew={crew} onAddTask={handleAddTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} currentUser={currentUser} />}
+            {activeTab === 'JOBS' && canAccess('JOBS') && <Jobs jobs={jobs} crew={crew} locations={locations} inventory={inventory} standardLists={standardLists} onAddJob={handleAddJob} onUpdateJob={handleUpdateJob} onDeleteJob={handleDeleteJob} currentUser={currentUser} settings={settings} tasks={tasks} onAddTask={handleAddTask} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} />}
             {activeTab === 'RENTALS' && canAccess('RENTALS') && <Rentals rentals={rentals} inventory={inventory} jobs={jobs} onAddRental={handleAddRental} onUpdateRental={handleUpdateRental} onDeleteRental={handleDeleteRental} settings={settings} currentUser={currentUser} />}
             {activeTab === 'INVENTORY' && canAccess('INVENTORY') && <Inventory inventory={inventory} onAddItem={handleAddInventory} onUpdateItem={handleUpdateInventory} onDeleteItem={handleDeleteInventory} />}
             {/* UPDATED: StandardLists now receives Jobs logic for Operations view */}

@@ -3,10 +3,12 @@
 
 
 
+
+
 import React, { useState, useMemo, useEffect } from 'react';
-import { Job, JobStatus, MaterialItem, CrewMember, Location, InventoryItem, JobPhase, JobVehicle, VehicleType, OutfitType, StandardMaterialList, AppSettings, ApprovalStatus, CrewType, ExtraCost } from '../types';
+import { Job, JobStatus, MaterialItem, CrewMember, Location, InventoryItem, JobPhase, JobVehicle, VehicleType, OutfitType, StandardMaterialList, AppSettings, ApprovalStatus, CrewType, ExtraCost, Task } from '../types';
 import { checkAvailabilityHelper } from '../services/helpers';
-import { Plus, Calendar, MapPin, Trash2, Edit3, UserPlus, Package, Check, Clock, X, Truck, AlertTriangle, Info, ClipboardList, Speaker, Monitor, Zap, Box, Cable, ChevronRight, Search, Lightbulb, CheckSquare, Printer, Minus, Filter, ClipboardCheck, Copy, CalendarRange, Phone, Network, Archive, FolderOpen, Folder, ArrowDownCircle, ArrowLeft, ArrowRight, List, Briefcase, Mail, User, BriefcaseIcon, Shirt, FilePlus, Hotel, BedDouble, Plane, Navigation, Layers, Wifi, WifiOff, Users, Handshake, Euro, Calculator, TrendingUp, TrendingDown, Receipt, Landmark } from 'lucide-react';
+import { Plus, Calendar, MapPin, Trash2, Edit3, UserPlus, Package, Check, Clock, X, Truck, AlertTriangle, Info, ClipboardList, Speaker, Monitor, Zap, Box, Cable, ChevronRight, Search, Lightbulb, CheckSquare, Printer, Minus, Filter, ClipboardCheck, Copy, CalendarRange, Phone, Network, Archive, FolderOpen, Folder, ArrowDownCircle, ArrowLeft, ArrowRight, List, Briefcase, Mail, User, BriefcaseIcon, Shirt, FilePlus, Hotel, BedDouble, Plane, Navigation, Layers, Wifi, WifiOff, Users, Handshake, Euro, Calculator, TrendingUp, TrendingDown, Receipt, Landmark, CheckCircle } from 'lucide-react';
 
 interface JobsProps {
   jobs: Job[];
@@ -17,8 +19,12 @@ interface JobsProps {
   onAddJob: (job: Job) => void;
   onUpdateJob: (job: Job) => void;
   onDeleteJob: (id: string) => void;
-  currentUser?: { role: 'ADMIN' | 'MANAGER' | 'TECH' };
+  currentUser?: { role: 'ADMIN' | 'MANAGER' | 'TECH', id: string, name: string };
   settings?: AppSettings;
+  tasks?: Task[];
+  onAddTask?: (task: Task) => void;
+  onUpdateTask?: (task: Task) => void;
+  onDeleteTask?: (id: string) => void;
 }
 
 const BASE_QUICK_ITEMS = [
@@ -32,10 +38,10 @@ const BASE_QUICK_ITEMS = [
     { name: 'Ciabatte AC', category: 'Cavi', type: 'Elettrico' },
 ];
 
-export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, standardLists = [], onAddJob, onUpdateJob, onDeleteJob, currentUser, settings }) => {
+export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, standardLists = [], onAddJob, onUpdateJob, onDeleteJob, currentUser, settings, tasks = [], onAddTask, onUpdateTask, onDeleteTask }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
-  const [activeTab, setActiveTab] = useState<'DETAILS' | 'LOCATION' | 'PHASES' | 'MATERIAL' | 'CREW' | 'PLAN' | 'BUDGET'>('DETAILS');
+  const [activeTab, setActiveTab] = useState<'DETAILS' | 'LOCATION' | 'PHASES' | 'MATERIAL' | 'CREW' | 'PLAN' | 'BUDGET' | 'TASKS'>('DETAILS');
   const [viewMode, setViewMode] = useState<'TIMELINE' | 'ARCHIVE'>('TIMELINE');
   
   // Material State
@@ -69,6 +75,11 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
   // Budget Extra Costs State
   const [newExtraDesc, setNewExtraDesc] = useState('');
   const [newExtraAmount, setNewExtraAmount] = useState('');
+
+  // Tasks State
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskAssignee, setNewTaskAssignee] = useState('');
+  const [newTaskDeadline, setNewTaskDeadline] = useState('');
 
   const userRole = currentUser?.role || 'TECH';
   const permissions = settings?.permissions?.[userRole as 'MANAGER' | 'TECH'] || { canViewBudget: false };
@@ -526,6 +537,27 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
       return crew.filter(c => activeJob.assignedCrew.includes(c.id));
   }, [activeJob, crew]);
 
+  // --- TASK HANDLERS ---
+  const handleAddNewTask = () => {
+      if (!newTaskTitle || !activeJob || !onAddTask) return;
+      const task: Task = {
+          id: Date.now().toString(),
+          title: newTaskTitle,
+          assignedTo: newTaskAssignee,
+          jobId: activeJob.id,
+          createdBy: currentUser?.id || 'system',
+          deadline: newTaskDeadline || activeJob.endDate,
+          status: 'PENDING'
+      };
+      onAddTask(task);
+      setNewTaskTitle(''); setNewTaskAssignee(''); setNewTaskDeadline('');
+  };
+
+  const jobTasks = useMemo(() => {
+      if (!activeJob) return [];
+      return tasks.filter(t => t.jobId === activeJob.id);
+  }, [activeJob, tasks]);
+
   if (isEditing && activeJob) {
     return (
       <div className={`bg-glr-800 rounded-xl p-6 border border-glr-700 animate-fade-in shadow-2xl h-[calc(100vh-140px)] flex flex-col print-only`}>
@@ -538,9 +570,9 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
         </div>
 
         <div className="flex border-b border-glr-700 mb-4 shrink-0 overflow-x-auto no-print">
-             {['DETAILS', 'LOCATION', 'PHASES', 'MATERIAL', 'CREW', 'PLAN', ...(showBudget ? ['BUDGET'] : [])].map(tab => (
+             {['DETAILS', 'LOCATION', 'PHASES', 'MATERIAL', 'CREW', 'TASKS', 'PLAN', ...(showBudget ? ['BUDGET'] : [])].map(tab => (
                  <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${activeTab === tab ? 'border-glr-accent text-white' : 'border-transparent text-gray-400 hover:text-gray-200'}`}>
-                     {tab === 'DETAILS' ? 'Dettagli Evento' : tab === 'LOCATION' ? 'Scheda Location' : tab === 'PHASES' ? 'Fasi & Logistica' : tab === 'MATERIAL' ? 'Materiale' : tab === 'CREW' ? 'Crew' : tab === 'PLAN' ? 'Piano di Produzione' : 'Budget & Costi'}
+                     {tab === 'DETAILS' ? 'Dettagli Evento' : tab === 'LOCATION' ? 'Scheda Location' : tab === 'PHASES' ? 'Fasi & Logistica' : tab === 'MATERIAL' ? 'Materiale' : tab === 'CREW' ? 'Crew' : tab === 'TASKS' ? 'Task & Attività' : tab === 'PLAN' ? 'Piano di Produzione' : 'Budget & Costi'}
                  </button>
              ))}
         </div>
@@ -601,7 +633,7 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
                 </div>
             )}
             
-            {/* LOCATION TAB */}
+            {/* ... Other Tabs Logic ... */}
             {activeTab === 'LOCATION' && (
                 <div className="space-y-6">
                     {activeLocationData ? (
@@ -697,6 +729,70 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
                     <p className="text-gray-400 text-xs">Assegna i tecnici alle specifiche fasi operative dell'evento. I tecnici selezionati appariranno nel planning globale.</p>
                     {activeJob.phases.length === 0 && (<div className="bg-red-900/20 border border-red-800 rounded p-4 text-center"><p className="text-red-300 text-sm font-bold mb-2">Nessuna Fase Operativa definita</p><p className="text-gray-400 text-xs mb-3">Devi prima creare le fasi (es. Montaggio, Evento) nella sezione "Fasi & Logistica" per poter assegnare la crew.</p><button onClick={() => setActiveTab('PHASES')} className="text-white bg-glr-700 px-3 py-1 rounded text-xs hover:bg-glr-600">Vai a Fasi</button></div>)}
                     <div className="grid grid-cols-1 gap-6">{activeJob.phases.map(phase => (<div key={phase.id} className="bg-glr-800 border border-glr-700 rounded-lg overflow-hidden"><div className="bg-glr-900/50 p-3 border-b border-glr-700 flex justify-between items-center"><div className="flex items-center gap-2"><div className="bg-glr-700 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">{activeJob.phases.indexOf(phase) + 1}</div><h4 className="font-bold text-white">{phase.name}</h4></div><div className="text-xs text-gray-400 flex items-center gap-2"><Calendar size={12}/>{new Date(phase.start).toLocaleDateString()} {new Date(phase.start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {new Date(phase.end).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div></div><div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">{crew.map(c => { const isAssigned = (phase.assignedCrew || []).includes(c.id); return (<button key={c.id} onClick={() => canEdit && toggleCrewInPhase(phase.id, c.id)} disabled={!canEdit} className={`p-4 h-24 rounded-lg border text-left transition-all relative flex flex-col justify-between shadow-md hover:shadow-lg hover:scale-[1.02] ${isAssigned ? 'bg-green-600/20 border-green-500' : 'bg-glr-900 border-glr-700 hover:border-gray-500'}`}><div className="flex justify-between w-full"><div className="w-8 h-8 rounded-full bg-glr-800 flex items-center justify-center text-sm font-bold text-gray-300 border border-glr-600">{c.name.charAt(0)}</div>{isAssigned && <div className="bg-green-500 text-white rounded-full p-0.5"><Check size={14}/></div>}</div><div><span className={`block font-bold text-sm ${isAssigned ? 'text-white' : 'text-gray-400'}`}>{c.name}</span><span className="text-[10px] text-gray-500 block truncate">{c.roles[0]}</span></div></button>)})}</div></div>))}</div>
+                </div>
+            )}
+
+            {activeTab === 'TASKS' && (
+                <div className="space-y-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-white font-bold flex items-center gap-2"><ClipboardCheck size={18}/> Task & Attività</h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {/* Task Form */}
+                        {canEdit && (
+                            <div className="bg-glr-900/50 p-4 rounded-xl border border-glr-700 h-fit">
+                                <h4 className="text-glr-accent font-bold text-sm mb-4 uppercase">Nuovo Task</h4>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">Titolo Attività</label>
+                                        <input type="text" value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm" placeholder="Es. Scaricare SD Card"/>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">Assegna a</label>
+                                        <select value={newTaskAssignee} onChange={e => setNewTaskAssignee(e.target.value)} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm">
+                                            <option value="">-- Seleziona Tecnico --</option>
+                                            {assignedCrewObjects.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">Scadenza</label>
+                                        <input type="date" value={newTaskDeadline} onChange={e => setNewTaskDeadline(e.target.value)} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm"/>
+                                    </div>
+                                    <button onClick={handleAddNewTask} disabled={!newTaskTitle || !newTaskAssignee} className="w-full bg-glr-700 hover:bg-white hover:text-glr-900 text-white font-bold py-2 rounded text-sm transition-colors disabled:opacity-50">Aggiungi Task</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Task List */}
+                        <div className="md:col-span-2 space-y-3">
+                            {jobTasks.length === 0 && <div className="text-center text-gray-500 py-10 bg-glr-900/30 rounded-xl border border-dashed border-glr-700">Nessun task assegnato per questo lavoro.</div>}
+                            {jobTasks.map(task => {
+                                const assigneeName = crew.find(c => c.id === task.assignedTo)?.name || 'Sconosciuto';
+                                const isCompleted = task.status === 'COMPLETED';
+                                
+                                return (
+                                    <div key={task.id} className={`p-4 rounded-lg border flex items-center justify-between transition-colors ${isCompleted ? 'bg-green-900/20 border-green-800 opacity-70' : 'bg-glr-800 border-glr-700'}`}>
+                                        <div className="flex items-center gap-4">
+                                            <button onClick={() => onUpdateTask && onUpdateTask({...task, status: isCompleted ? 'PENDING' : 'COMPLETED'})} className={`w-6 h-6 rounded border flex items-center justify-center transition-colors ${isCompleted ? 'bg-green-500 border-green-500 text-white' : 'border-gray-500 text-transparent hover:border-white'}`}>
+                                                <Check size={16} strokeWidth={3}/>
+                                            </button>
+                                            <div>
+                                                <p className={`font-bold text-sm ${isCompleted ? 'text-gray-400 line-through' : 'text-white'}`}>{task.title}</p>
+                                                <div className="flex gap-4 text-xs text-gray-500 mt-1">
+                                                    <span className="flex items-center gap-1"><User size={12}/> {assigneeName}</span>
+                                                    <span className={`flex items-center gap-1 ${!isCompleted && new Date(task.deadline) < new Date() ? 'text-red-400 font-bold' : ''}`}><Clock size={12}/> Scadenza: {new Date(task.deadline).toLocaleDateString()}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {canEdit && (
+                                            <button onClick={() => onDeleteTask && onDeleteTask(task.id)} className="text-gray-600 hover:text-red-400 p-2"><Trash2 size={16}/></button>
+                                        )}
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
                 </div>
             )}
 
