@@ -1,5 +1,6 @@
 
-import { Job, JobStatus, InventoryItem, CrewMember, CrewTask } from '../types';
+
+import { Job, JobStatus, InventoryItem, CrewMember, CrewTask, Rental, RentalStatus } from '../types';
 
 export interface AvailabilityResult {
   available: number;
@@ -9,10 +10,11 @@ export interface AvailabilityResult {
 export const checkAvailabilityHelper = (
     inventory: InventoryItem[], 
     jobs: Job[],
+    rentals: Rental[] = [],
     inventoryId: string, 
     startDate: string, 
     endDate: string, 
-    currentJobId?: string
+    currentContextId?: string // Job ID or Rental ID to exclude
 ): AvailabilityResult => {
   const item = inventory.find(i => i.id === inventoryId);
   if (!item) return { available: 0, conflicts: [] };
@@ -23,8 +25,9 @@ export const checkAvailabilityHelper = (
   let used = 0;
   const conflicts: { jobName: string; quantity: number }[] = [];
 
+  // 1. Check Jobs
   jobs.forEach(job => {
-    if (job.status === JobStatus.CANCELLED || job.id === currentJobId) return;
+    if (job.status === JobStatus.CANCELLED || job.id === currentContextId) return;
     
     const jobStart = new Date(job.startDate).getTime();
     const jobEnd = new Date(job.endDate).getTime();
@@ -33,9 +36,25 @@ export const checkAvailabilityHelper = (
       const mat = job.materialList.find(m => m.inventoryId === inventoryId);
       if (mat) {
         used += mat.quantity;
-        conflicts.push({ jobName: job.title, quantity: mat.quantity });
+        conflicts.push({ jobName: `[Lavoro] ${job.title}`, quantity: mat.quantity });
       }
     }
+  });
+
+  // 2. Check Rentals
+  rentals.forEach(rental => {
+      if (rental.status === RentalStatus.CANCELLED || rental.status === RentalStatus.RETURNED || rental.id === currentContextId) return;
+
+      const rentalStart = new Date(rental.pickupDate).getTime();
+      const rentalEnd = new Date(rental.returnDate).getTime();
+
+      if (start <= rentalEnd && end >= rentalStart) {
+          const mat = rental.items.find(m => m.inventoryId === inventoryId);
+          if (mat) {
+              used += mat.quantity;
+              conflicts.push({ jobName: `[Noleggio] ${rental.client}`, quantity: mat.quantity });
+          }
+      }
   });
 
   return {

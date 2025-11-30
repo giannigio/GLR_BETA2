@@ -9,6 +9,14 @@ export enum JobStatus {
   CANCELLED = 'Annullato'
 }
 
+export enum RentalStatus {
+    DRAFT = 'Bozza',
+    CONFIRMED = 'Confermato',
+    OUT = 'In Uscita',
+    RETURNED = 'Rientrato',
+    CANCELLED = 'Annullato'
+}
+
 export enum CrewRole {
   AUDIO_ENG = 'Fellicista Audio',
   LIGHT_OP = 'Operatore Luci',
@@ -86,6 +94,10 @@ export interface MaterialItem {
   cost?: number;
   supplier?: string;
   notes?: string;
+  
+  // Logistics Check Flags
+  loaded?: boolean; // Load IN (Magazzino -> Furgone)
+  returned?: boolean; // Load OUT (Furgone -> Magazzino)
 }
 
 export interface StandardMaterialList {
@@ -93,6 +105,23 @@ export interface StandardMaterialList {
     name: string;
     labels: string[]; // Audio, Video, Luci
     items: MaterialItem[];
+    type?: 'TEMPLATE' | 'ACTIVE'; // Template = Kit, Active = Operativa
+}
+
+export interface Rental {
+    id: string;
+    status: RentalStatus;
+    client: string;
+    contactName?: string;
+    contactPhone?: string;
+    contactEmail?: string;
+    pickupDate: string;
+    returnDate: string;
+    deliveryMethod: 'RITIRO' | 'CONSEGNA';
+    deliveryAddress?: string;
+    items: MaterialItem[];
+    notes?: string;
+    totalPrice?: number;
 }
 
 export interface CrewExpense {
@@ -243,6 +272,7 @@ export interface Location {
   logistics: LocationLogistics;
   equipment: LocationEquipment;
   generalSurveyNotes: string;
+  photos?: string[]; // Array of base64 strings or URLs
 }
 
 export interface JobPhase {
@@ -272,6 +302,8 @@ export interface ExtraCost {
     amount: number;
 }
 
+export type JobLogisticsStatus = 'PREPARATION' | 'LOADED' | 'ON_SITE' | 'RETURNED' | 'CHECKED';
+
 export interface Job {
   id: string;
   title: string;
@@ -282,6 +314,7 @@ export interface Job {
   startDate: string;
   endDate: string;
   status: JobStatus;
+  logisticsStatus?: JobLogisticsStatus; // New status for warehouse flow
   departments: string[];
   isAwayJob: boolean;
   isSubcontracted: boolean;
@@ -338,11 +371,31 @@ export interface F24Payment {
 }
 
 export interface RolePermissions {
-    canViewBudget: boolean;
-    canManageCrew: boolean;
-    canManageLocations: boolean;
-    canManageInventory: boolean;
+    // Menu Visibility (Nav Bar)
+    canViewDashboard: boolean;
+    canViewJobs: boolean;
+    canViewKits: boolean;
+    canViewRentals: boolean;
+    canViewInventory: boolean;
+    canViewLocations: boolean;
+    canViewCrew: boolean;
+    canViewExpenses: boolean;
+    canViewCompany: boolean;
+
+    // Operational Actions
+    canManageJobs: boolean;
     canDeleteJobs: boolean;
+    canViewBudget: boolean;
+
+    canManageCrew: boolean;
+    
+    canManageExpenses: boolean;
+
+    canManageInventory: boolean;
+
+    canManageLocations: boolean;
+
+    canManageRentals: boolean;
 }
 
 export interface AppSettings {
@@ -358,6 +411,7 @@ export interface AppSettings {
     googleCalendarClientId: string;
     googleCalendarClientSecret: string;
     googleCalendarId: string;
+    crewRoles?: string[];
     permissions: {
         MANAGER: RolePermissions;
         TECH: RolePermissions;

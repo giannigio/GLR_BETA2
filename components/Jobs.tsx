@@ -1,5 +1,8 @@
 
 
+
+
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Job, JobStatus, MaterialItem, CrewMember, Location, InventoryItem, JobPhase, JobVehicle, VehicleType, OutfitType, StandardMaterialList, AppSettings, ApprovalStatus, CrewType, ExtraCost } from '../types';
 import { checkAvailabilityHelper } from '../services/helpers';
@@ -93,7 +96,7 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
       status: JobStatus.DRAFT, description: '', departments: [], isAwayJob: false, isSubcontracted: false, outfitNoLogo: false,
       contactName: '', contactPhone: '', contactEmail: '', hotelName: '', hotelAddress: '',
       phases: [], vehicles: [], materialList: [], assignedCrew: [], notes: '',
-      invoiceAmount: 0, extraCosts: []
+      invoiceAmount: 0, extraCosts: [], logisticsStatus: 'PREPARATION'
     };
     setActiveJob(newJob); setIsEditing(true); setActiveTab('DETAILS');
   };
@@ -108,7 +111,9 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
           endDate: new Date().toISOString().split('T')[0],
           assignedCrew: [], 
           invoiceAmount: 0,
-          extraCosts: []
+          extraCosts: [],
+          logisticsStatus: 'PREPARATION',
+          materialList: sourceJob.materialList.map(item => ({ ...item, loaded: false, returned: false })) // Reset logistics flags
       };
       setActiveJob(newJob);
       setIsEditing(true);
@@ -127,7 +132,9 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
       if (!activeJob) return;
       const newItems: MaterialItem[] = kit.items.map(item => ({
           ...item,
-          id: Date.now().toString() + Math.random().toString().slice(2)
+          id: Date.now().toString() + Math.random().toString().slice(2),
+          loaded: false,
+          returned: false
       }));
       
       setActiveJob(prev => {
@@ -205,7 +212,9 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
           isExternal: manualIsExternal,
           cost: manualIsExternal ? manualCost : undefined,
           supplier: manualIsExternal ? manualSupplier : undefined,
-          notes: manualNotes
+          notes: manualNotes,
+          loaded: false,
+          returned: false
       };
       addItemToList(newItem);
       setManualName(''); setManualType(''); setManualQty(1); setManualNotes(''); setManualCost(0); setManualSupplier('');
@@ -229,7 +238,7 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
   const handleQuickItemToggle = (qItem: typeof BASE_QUICK_ITEMS[0]) => {
         if (!activeJob) return;
         const newItem: MaterialItem = {
-            id: Date.now().toString(), name: qItem.name, category: qItem.category, type: qItem.type, quantity: 1, isExternal: false, notes: 'Aggiunta rapida'
+            id: Date.now().toString(), name: qItem.name, category: qItem.category, type: qItem.type, quantity: 1, isExternal: false, notes: 'Aggiunta rapida', loaded: false, returned: false
         };
         addItemToList(newItem);
         // Feedback loop
@@ -316,7 +325,7 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
 
   const handleInventoryAdd = (item: InventoryItem) => {
       if (!activeJob) return;
-      const newItem: MaterialItem = { id: Date.now().toString(), inventoryId: item.id, name: item.name, category: item.category, type: item.type, quantity: 1, isExternal: false };
+      const newItem: MaterialItem = { id: Date.now().toString(), inventoryId: item.id, name: item.name, category: item.category, type: item.type, quantity: 1, isExternal: false, loaded: false, returned: false };
       addItemToList(newItem);
       setAddedFeedback(prev => ({...prev, [item.id]: true}));
       setTimeout(() => { setAddedFeedback(prev => ({...prev, [item.id]: false})); }, 1000);
@@ -511,6 +520,12 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
       return list;
   }, [activeJob, crew]);
 
+  // --- ASSIGNED CREW OBJECTS (For Plan View) ---
+  const assignedCrewObjects = useMemo(() => {
+      if (!activeJob) return [];
+      return crew.filter(c => activeJob.assignedCrew.includes(c.id));
+  }, [activeJob, crew]);
+
   if (isEditing && activeJob) {
     return (
       <div className={`bg-glr-800 rounded-xl p-6 border border-glr-700 animate-fade-in shadow-2xl h-[calc(100vh-140px)] flex flex-col print-only`}>
@@ -531,289 +546,76 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
         </div>
 
         <div className="overflow-y-auto flex-1 pr-2">
+            {/* ... (DETAILS, LOCATION, PHASES, MATERIAL, CREW TABS REMAIN UNCHANGED - SKIPPING FOR BREVITY) ... */}
             {activeTab === 'DETAILS' && (
                 <div className="space-y-6 w-full">
-                    {/* FULL WIDTH DETAILS GRID */}
+                    {/* ... (Existing Details Content) ... */}
                     <div className="grid grid-cols-12 gap-6">
-                        
-                        {/* LEFT: MAIN INFO (Col 8) */}
                         <div className="col-span-12 lg:col-span-8 space-y-6">
-                             {/* TITLE ROW */}
                             <div className="bg-glr-900 p-6 rounded-xl border border-glr-700 shadow-md">
                                 <label className="block text-xs text-glr-accent mb-2 uppercase font-bold tracking-wider">Titolo Evento (Nome Scheda)</label>
                                 <input disabled={!canEdit} type="text" value={activeJob.title} onChange={e => setActiveJob({...activeJob, title: e.target.value})} className="w-full bg-transparent border-b-2 border-glr-700 focus:border-glr-accent text-white font-bold text-3xl outline-none placeholder-gray-600 transition-colors" placeholder="Es. Convention Annuale 2024" />
-                                
-                                {/* DEPARTMENTS MULTI-SELECT */}
                                 <div className="mt-4 pt-4 border-t border-glr-800">
                                     <label className="block text-xs text-gray-400 mb-2 uppercase font-bold">Settori Coinvolti</label>
                                     <div className="flex gap-2">
                                         {['Audio', 'Video', 'Luci'].map(d => (
-                                            <button 
-                                                key={d}
-                                                onClick={() => canEdit && toggleDepartment(d)}
-                                                className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-colors ${
-                                                    activeJob.departments.includes(d) 
-                                                        ? 'bg-glr-accent text-glr-900 border-glr-accent' 
-                                                        : 'bg-glr-800 text-gray-400 border-glr-600 hover:border-gray-400'
-                                                }`}
-                                            >
-                                                {activeJob.departments.includes(d) && <Check size={12} className="inline mr-1"/>}
-                                                {d}
-                                            </button>
+                                            <button key={d} onClick={() => canEdit && toggleDepartment(d)} className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-colors ${activeJob.departments.includes(d) ? 'bg-glr-accent text-glr-900 border-glr-accent' : 'bg-glr-800 text-gray-400 border-glr-600 hover:border-gray-400'}`}>{activeJob.departments.includes(d) && <Check size={12} className="inline mr-1"/>}{d}</button>
                                         ))}
                                     </div>
                                 </div>
                             </div>
-
-                            {/* CLIENTS ROW */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="bg-glr-900 p-5 rounded-xl border border-glr-700">
-                                    <label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Committente Principale</label>
-                                    <div className="flex items-center gap-3">
-                                        <Briefcase size={20} className="text-gray-500"/>
-                                        <input disabled={!canEdit} type="text" value={activeJob.client} onChange={e => setActiveJob({...activeJob, client: e.target.value})} className="w-full bg-transparent border-b border-glr-700 focus:border-glr-accent text-white text-lg font-medium outline-none" placeholder="Azienda / Cliente" />
-                                    </div>
-                                </div>
-                                <div className="bg-glr-900 p-5 rounded-xl border border-glr-700">
-                                    <label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Cliente Interno / Agenzia</label>
-                                    <div className="flex items-center gap-3">
-                                        <User size={20} className="text-gray-500"/>
-                                        <input disabled={!canEdit} type="text" value={activeJob.internalClient || ''} onChange={e => setActiveJob({...activeJob, internalClient: e.target.value})} className="w-full bg-transparent border-b border-glr-700 focus:border-glr-accent text-white text-lg font-medium outline-none" placeholder="Opzionale" />
-                                    </div>
-                                </div>
+                                <div className="bg-glr-900 p-5 rounded-xl border border-glr-700"><label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Committente Principale</label><div className="flex items-center gap-3"><Briefcase size={20} className="text-gray-500"/><input disabled={!canEdit} type="text" value={activeJob.client} onChange={e => setActiveJob({...activeJob, client: e.target.value})} className="w-full bg-transparent border-b border-glr-700 focus:border-glr-accent text-white text-lg font-medium outline-none" placeholder="Azienda / Cliente" /></div></div>
+                                <div className="bg-glr-900 p-5 rounded-xl border border-glr-700"><label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Cliente Interno / Agenzia</label><div className="flex items-center gap-3"><User size={20} className="text-gray-500"/><input disabled={!canEdit} type="text" value={activeJob.internalClient || ''} onChange={e => setActiveJob({...activeJob, internalClient: e.target.value})} className="w-full bg-transparent border-b border-glr-700 focus:border-glr-accent text-white text-lg font-medium outline-none" placeholder="Opzionale" /></div></div>
                             </div>
-                            
-                            {/* COLLABORATIONS & PARTNERS */}
                             <div className="bg-glr-900 p-5 rounded-xl border border-glr-700">
-                                <label className="block text-xs text-gray-400 mb-3 uppercase font-bold flex items-center gap-2">
-                                    <Handshake size={14}/> Partner & Collaborazioni
-                                </label>
+                                <label className="block text-xs text-gray-400 mb-3 uppercase font-bold flex items-center gap-2"><Handshake size={14}/> Partner & Collaborazioni</label>
                                 <div className="space-y-4">
-                                    {/* SUBCONTRACT */}
                                     <div className="flex items-start gap-3">
-                                        <label className="flex items-center gap-2 cursor-pointer mt-1">
-                                            <input disabled={!canEdit} type="checkbox" checked={activeJob.isSubcontracted} onChange={e => setActiveJob({...activeJob, isSubcontracted: e.target.checked})} className="rounded bg-glr-800 border-glr-600 text-glr-accent"/>
-                                            <span className="text-sm font-bold text-white">Subappalto</span>
-                                        </label>
-                                        {activeJob.isSubcontracted && (
-                                            <div className="flex-1 animate-fade-in">
-                                                <input disabled={!canEdit} type="text" value={activeJob.subcontractorName || ''} onChange={e => setActiveJob({...activeJob, subcontractorName: e.target.value})} className="w-full bg-glr-800 border border-glr-600 rounded p-1.5 text-white text-sm" placeholder="Azienda Subappalto"/>
-                                            </div>
-                                        )}
+                                        <label className="flex items-center gap-2 cursor-pointer mt-1"><input disabled={!canEdit} type="checkbox" checked={activeJob.isSubcontracted} onChange={e => setActiveJob({...activeJob, isSubcontracted: e.target.checked})} className="rounded bg-glr-800 border-glr-600 text-glr-accent"/><span className="text-sm font-bold text-white">Subappalto</span></label>
+                                        {activeJob.isSubcontracted && (<div className="flex-1 animate-fade-in"><input disabled={!canEdit} type="text" value={activeJob.subcontractorName || ''} onChange={e => setActiveJob({...activeJob, subcontractorName: e.target.value})} className="w-full bg-glr-800 border border-glr-600 rounded p-1.5 text-white text-sm" placeholder="Azienda Subappalto"/></div>)}
                                     </div>
-
-                                    {/* OTHER SERVICES */}
                                     <div className="flex flex-col gap-3 pt-2 border-t border-glr-800">
-                                         <label className="flex items-center gap-2 cursor-pointer w-fit">
-                                            <input disabled={!canEdit} type="checkbox" checked={activeJob.hasExternalService} onChange={e => setActiveJob({...activeJob, hasExternalService: e.target.checked})} className="rounded bg-glr-800 border-glr-600 text-glr-accent"/>
-                                            <span className="text-sm font-bold text-white">Altri Service Coinvolti</span>
-                                        </label>
-                                        {activeJob.hasExternalService && (
-                                            <div className="flex gap-4 animate-fade-in pl-6">
-                                                <div className="flex-1">
-                                                    <input disabled={!canEdit} type="text" value={activeJob.externalServiceName || ''} onChange={e => setActiveJob({...activeJob, externalServiceName: e.target.value})} className="w-full bg-glr-800 border border-glr-600 rounded p-1.5 text-white text-sm" placeholder="Nome Service"/>
-                                                </div>
-                                                <div className="w-40">
-                                                    <select disabled={!canEdit} value={activeJob.externalServiceRole || ''} onChange={e => setActiveJob({...activeJob, externalServiceRole: e.target.value})} className="w-full bg-glr-800 border border-glr-600 rounded p-1.5 text-white text-sm">
-                                                        <option value="">Settore...</option>
-                                                        <option value="Audio">Audio</option>
-                                                        <option value="Video">Video</option>
-                                                        <option value="Luci">Luci</option>
-                                                        <option value="Strutture">Strutture</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                        )}
+                                         <label className="flex items-center gap-2 cursor-pointer w-fit"><input disabled={!canEdit} type="checkbox" checked={activeJob.hasExternalService} onChange={e => setActiveJob({...activeJob, hasExternalService: e.target.checked})} className="rounded bg-glr-800 border-glr-600 text-glr-accent"/><span className="text-sm font-bold text-white">Altri Service Coinvolti</span></label>
+                                        {activeJob.hasExternalService && (<div className="flex gap-4 animate-fade-in pl-6"><div className="flex-1"><input disabled={!canEdit} type="text" value={activeJob.externalServiceName || ''} onChange={e => setActiveJob({...activeJob, externalServiceName: e.target.value})} className="w-full bg-glr-800 border border-glr-600 rounded p-1.5 text-white text-sm" placeholder="Nome Service"/></div><div className="w-40"><select disabled={!canEdit} value={activeJob.externalServiceRole || ''} onChange={e => setActiveJob({...activeJob, externalServiceRole: e.target.value})} className="w-full bg-glr-800 border border-glr-600 rounded p-1.5 text-white text-sm"><option value="">Settore...</option><option value="Audio">Audio</option><option value="Video">Video</option><option value="Luci">Luci</option><option value="Strutture">Strutture</option></select></div></div>)}
                                     </div>
                                 </div>
                             </div>
-                            
-                            {/* LOCATION SELECTOR FULL */}
                             <div className="bg-glr-900 p-5 rounded-xl border border-glr-700">
                                 <label className="block text-xs text-gray-400 mb-2 uppercase font-bold">Location & Indirizzo</label>
-                                <div className="flex gap-4">
-                                    <select disabled={!canEdit} value={activeJob.locationId || "custom"} onChange={handleLocationChange} className="w-1/3 bg-glr-800 border border-glr-600 rounded-lg p-3 text-white text-sm font-bold shadow-sm">
-                                        <option value="custom">Manuale / Custom...</option>{locations.map(l => (<option key={l.id} value={l.id}>{l.name}</option>))}
-                                    </select>
-                                    <div className="flex-1 relative">
-                                        <MapPin size={18} className="absolute left-3 top-3.5 text-gray-400"/>
-                                        <input disabled={!canEdit} type="text" value={activeJob.location} onChange={e => setActiveJob({...activeJob, location: e.target.value, locationId: undefined})} placeholder="Indirizzo Completo" className="w-full bg-glr-800 border border-glr-600 rounded-lg pl-10 pr-3 py-3 text-white text-sm" />
-                                    </div>
-                                </div>
+                                <div className="flex gap-4"><select disabled={!canEdit} value={activeJob.locationId || "custom"} onChange={handleLocationChange} className="w-1/3 bg-glr-800 border border-glr-600 rounded-lg p-3 text-white text-sm font-bold shadow-sm"><option value="custom">Manuale / Custom...</option>{locations.map(l => (<option key={l.id} value={l.id}>{l.name}</option>))}</select><div className="flex-1 relative"><MapPin size={18} className="absolute left-3 top-3.5 text-gray-400"/><input disabled={!canEdit} type="text" value={activeJob.location} onChange={e => setActiveJob({...activeJob, location: e.target.value, locationId: undefined})} placeholder="Indirizzo Completo" className="w-full bg-glr-800 border border-glr-600 rounded-lg pl-10 pr-3 py-3 text-white text-sm" /></div></div>
                             </div>
-
-                             {/* NOTES FULL */}
-                             <div className="bg-glr-900 p-5 rounded-xl border border-glr-700">
-                                 <label className="block text-xs text-gray-400 mb-2 uppercase font-bold">Descrizione Operativa & Note</label>
-                                 <textarea disabled={!canEdit} value={activeJob.description} onChange={e => setActiveJob({...activeJob, description: e.target.value})} className="w-full bg-glr-800 border border-glr-600 rounded p-4 text-white h-40 text-sm leading-relaxed resize-none focus:border-glr-accent outline-none" placeholder="Dettagli aggiuntivi sull'evento, orari di massima, necessità particolari..." />
-                            </div>
+                             <div className="bg-glr-900 p-5 rounded-xl border border-glr-700"><label className="block text-xs text-gray-400 mb-2 uppercase font-bold">Descrizione Operativa & Note</label><textarea disabled={!canEdit} value={activeJob.description} onChange={e => setActiveJob({...activeJob, description: e.target.value})} className="w-full bg-glr-800 border border-glr-600 rounded p-4 text-white h-40 text-sm leading-relaxed resize-none focus:border-glr-accent outline-none" placeholder="Dettagli aggiuntivi sull'evento, orari di massima, necessità particolari..." /></div>
                         </div>
-                        
-                        {/* RIGHT: META INFO (Col 4) */}
                         <div className="col-span-12 lg:col-span-4 space-y-6">
-                            {/* STATUS CARD */}
                             <div className="bg-glr-800 p-5 rounded-xl border border-glr-600 shadow-lg space-y-4">
-                                 <div>
-                                    <label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Stato Lavoro</label>
-                                    <select disabled={!canEdit} value={activeJob.status} onChange={e => setActiveJob({...activeJob, status: e.target.value as JobStatus})} className="w-full bg-glr-900 border border-glr-500 rounded p-3 text-white font-bold text-base focus:ring-2 ring-glr-accent outline-none">
-                                        {Object.values(JobStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                                    </select>
-                                 </div>
-
-                                 {/* NEW WORKFLOW CHECKBOXES */}
-                                 {canEdit && (
-                                     <div className="space-y-2 bg-glr-900/50 p-2 rounded border border-glr-700/50">
-                                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-glr-800 transition-colors">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={activeJob.status !== JobStatus.DRAFT} 
-                                                onChange={e => handleQuoteAccepted(e.target.checked)} 
-                                                className="rounded bg-glr-800 border-glr-600 text-green-500 w-4 h-4"
-                                            />
-                                            <span className="text-sm text-gray-300 font-bold">Preventivo Accettato</span>
-                                        </label>
-                                        
-                                        {(activeJob.status === JobStatus.CONFIRMED || activeJob.status === JobStatus.IN_PROGRESS || activeJob.status === JobStatus.COMPLETED) && (
-                                            <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-glr-800 transition-colors animate-fade-in">
-                                                <input 
-                                                    type="checkbox" 
-                                                    checked={activeJob.status === JobStatus.COMPLETED} 
-                                                    onChange={e => handleInvoiceIssued(e.target.checked)} 
-                                                    className="rounded bg-glr-800 border-glr-600 text-purple-500 w-4 h-4"
-                                                />
-                                                <span className="text-sm text-gray-300 font-bold">Fattura Emessa</span>
-                                            </label>
-                                        )}
-                                     </div>
-                                 )}
-
-                                 <div className="space-y-3 pt-2">
-                                    <div>
-                                         <label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Inizio Evento</label>
-                                         <input disabled={!canEdit} type="date" value={activeJob.startDate} onChange={e => setActiveJob({...activeJob, startDate: e.target.value})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white" />
-                                    </div>
-                                    <div>
-                                         <label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Fine Evento</label>
-                                         <input disabled={!canEdit} type="date" value={activeJob.endDate} onChange={e => setActiveJob({...activeJob, endDate: e.target.value})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white" />
-                                    </div>
-                                 </div>
-                                 <div className="pt-2 border-t border-glr-700 mt-2">
-                                     <label className="flex items-center gap-3 cursor-pointer bg-blue-900/20 p-3 rounded border border-blue-800/50 hover:bg-blue-900/30 transition-colors">
-                                        <input disabled={!canEdit} type="checkbox" checked={activeJob.isAwayJob} onChange={e => setActiveJob({...activeJob, isAwayJob: e.target.checked})} className="rounded bg-glr-800 border-glr-600 text-blue-500 w-5 h-5"/>
-                                        <span className="text-sm text-blue-300 font-bold flex items-center gap-2"><Plane size={16}/> Trasferta / Away Job</span>
-                                     </label>
-                                 </div>
+                                 <div><label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Stato Lavoro</label><select disabled={!canEdit} value={activeJob.status} onChange={e => setActiveJob({...activeJob, status: e.target.value as JobStatus})} className="w-full bg-glr-900 border border-glr-500 rounded p-3 text-white font-bold text-base focus:ring-2 ring-glr-accent outline-none">{Object.values(JobStatus).map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                                 {activeJob.logisticsStatus && (<div className="bg-glr-900/50 p-2 rounded border border-glr-700 flex justify-between items-center text-xs"><span className="text-gray-400 font-bold uppercase">Stato Logistica</span><span className={`px-2 py-1 rounded font-bold uppercase ${activeJob.logisticsStatus === 'LOADED' ? 'bg-blue-900/30 text-blue-300' : activeJob.logisticsStatus === 'RETURNED' ? 'bg-green-900/30 text-green-300' : 'bg-gray-800 text-gray-400'}`}>{activeJob.logisticsStatus === 'PREPARATION' ? 'In Prep.' : activeJob.logisticsStatus === 'LOADED' ? 'Caricato' : activeJob.logisticsStatus === 'ON_SITE' ? 'In Evento' : 'Rientrato'}</span></div>)}
+                                 {canEdit && (<div className="space-y-2 bg-glr-900/50 p-2 rounded border border-glr-700/50"><label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-glr-800 transition-colors"><input type="checkbox" checked={activeJob.status !== JobStatus.DRAFT} onChange={e => handleQuoteAccepted(e.target.checked)} className="rounded bg-glr-800 border-glr-600 text-green-500 w-4 h-4"/><span className="text-sm text-gray-300 font-bold">Preventivo Accettato</span></label>{(activeJob.status === JobStatus.CONFIRMED || activeJob.status === JobStatus.IN_PROGRESS || activeJob.status === JobStatus.COMPLETED) && (<label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-glr-800 transition-colors animate-fade-in"><input type="checkbox" checked={activeJob.status === JobStatus.COMPLETED} onChange={e => handleInvoiceIssued(e.target.checked)} className="rounded bg-glr-800 border-glr-600 text-purple-500 w-4 h-4"/><span className="text-sm text-gray-300 font-bold">Fattura Emessa</span></label>)}</div>)}
+                                 <div className="space-y-3 pt-2"><div><label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Inizio Evento</label><input disabled={!canEdit} type="date" value={activeJob.startDate} onChange={e => setActiveJob({...activeJob, startDate: e.target.value})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white" /></div><div><label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Fine Evento</label><input disabled={!canEdit} type="date" value={activeJob.endDate} onChange={e => setActiveJob({...activeJob, endDate: e.target.value})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white" /></div></div>
+                                 <div className="pt-2 border-t border-glr-700 mt-2"><label className="flex items-center gap-3 cursor-pointer bg-blue-900/20 p-3 rounded border border-blue-800/50 hover:bg-blue-900/30 transition-colors"><input disabled={!canEdit} type="checkbox" checked={activeJob.isAwayJob} onChange={e => setActiveJob({...activeJob, isAwayJob: e.target.checked})} className="rounded bg-glr-800 border-glr-600 text-blue-500 w-5 h-5"/><span className="text-sm text-blue-300 font-bold flex items-center gap-2"><Plane size={16}/> Trasferta / Away Job</span></label></div>
                             </div>
-
-                            {/* REFERENTE */}
-                            <div className="bg-glr-900/50 p-5 rounded-xl border border-glr-700">
-                                <h4 className="text-xs font-bold text-glr-accent uppercase mb-4 flex items-center gap-2 border-b border-glr-700/50 pb-2"><User size={14}/> Referente Lavoro</h4>
-                                <div className="space-y-3">
-                                    <input disabled={!canEdit} type="text" value={activeJob.contactName || ''} onChange={e => setActiveJob({...activeJob, contactName: e.target.value})} className="w-full bg-glr-800 border border-glr-700 rounded p-2 text-white text-sm" placeholder="Nome Cognome" />
-                                    <div className="flex items-center gap-2 relative">
-                                        <Phone size={14} className="absolute left-3 text-gray-500"/>
-                                        <input disabled={!canEdit} type="text" value={activeJob.contactPhone || ''} onChange={e => setActiveJob({...activeJob, contactPhone: e.target.value})} className="w-full bg-glr-800 border border-glr-700 rounded p-2 pl-9 text-white text-sm" placeholder="Telefono" />
-                                    </div>
-                                    <div className="flex items-center gap-2 relative">
-                                        <Mail size={14} className="absolute left-3 text-gray-500"/>
-                                        <input disabled={!canEdit} type="text" value={activeJob.contactEmail || ''} onChange={e => setActiveJob({...activeJob, contactEmail: e.target.value})} className="w-full bg-glr-800 border border-glr-700 rounded p-2 pl-9 text-white text-sm" placeholder="Email" />
-                                    </div>
-                                </div>
-                            </div>
+                            <div className="bg-glr-900/50 p-5 rounded-xl border border-glr-700"><h4 className="text-xs font-bold text-glr-accent uppercase mb-4 flex items-center gap-2 border-b border-glr-700/50 pb-2"><User size={14}/> Referente Lavoro</h4><div className="space-y-3"><input disabled={!canEdit} type="text" value={activeJob.contactName || ''} onChange={e => setActiveJob({...activeJob, contactName: e.target.value})} className="w-full bg-glr-800 border border-glr-700 rounded p-2 text-white text-sm" placeholder="Nome Cognome" /><div className="flex items-center gap-2 relative"><Phone size={14} className="absolute left-3 text-gray-500"/><input disabled={!canEdit} type="text" value={activeJob.contactPhone || ''} onChange={e => setActiveJob({...activeJob, contactPhone: e.target.value})} className="w-full bg-glr-800 border border-glr-700 rounded p-2 pl-9 text-white text-sm" placeholder="Telefono" /></div><div className="flex items-center gap-2 relative"><Mail size={14} className="absolute left-3 text-gray-500"/><input disabled={!canEdit} type="text" value={activeJob.contactEmail || ''} onChange={e => setActiveJob({...activeJob, contactEmail: e.target.value})} className="w-full bg-glr-800 border border-glr-700 rounded p-2 pl-9 text-white text-sm" placeholder="Email" /></div></div></div>
                         </div>
                     </div>
                 </div>
             )}
-
-            {/* ... (LOCATION, PHASES, MATERIAL, CREW TABS REMAIN UNCHANGED - SKIPPING FOR BREVITY IF NOT MODIFIED IN THIS LOGIC) ... */}
+            
+            {/* LOCATION TAB */}
             {activeTab === 'LOCATION' && (
                 <div className="space-y-6">
                     {activeLocationData ? (
                         <div className="space-y-6 animate-fade-in">
-                            {/* GENERAL & ACCESS */}
                             <div className="bg-glr-900/50 p-4 rounded-lg border border-glr-700">
-                                <div className="flex justify-between items-start mb-4">
-                                    <h3 className="text-glr-accent font-bold uppercase text-sm flex items-center gap-2"><MapPin size={16}/> Accesso & Contatti</h3>
-                                    {/* ROUTE BUTTON */}
-                                    <a 
-                                        href={getRouteLink(activeLocationData.address)} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded flex items-center gap-2 transition-colors"
-                                    >
-                                        <Navigation size={14}/> Calcola Percorso da Sede
-                                    </a>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <p className="text-white font-bold text-lg mb-1">{activeLocationData.name}</p>
-                                        <p className="text-gray-400 text-sm mb-2">{activeLocationData.address}</p>
-                                        {activeLocationData.mapsLink && <a href={activeLocationData.mapsLink} target="_blank" className="text-blue-400 text-xs hover:underline">Vedi posizione esatta (Maps)</a>}
-                                    </div>
-                                    <div className="text-sm space-y-1">
-                                        <p><span className="text-gray-500">Referente Location:</span> <span className="text-white font-bold">{activeLocationData.contactName}</span></p>
-                                        <p><span className="text-gray-500">Telefono:</span> <span className="text-white font-bold">{activeLocationData.contactPhone}</span></p>
-                                        <p><span className="text-gray-500">Orari:</span> <span className="text-white">{activeLocationData.accessHours}</span></p>
-                                        <p><span className="text-gray-500">ZTL:</span> <span className={activeLocationData.isZtl ? 'text-red-400 font-bold' : 'text-green-400'}>{activeLocationData.isZtl ? 'ATTIVA' : 'NO'}</span></p>
-                                    </div>
-                                </div>
-                                {activeLocationData.generalSurveyNotes && (
-                                    <div className="mt-4 pt-4 border-t border-glr-700">
-                                        <p className="text-xs text-gray-500 uppercase mb-1">Note Generali</p>
-                                        <p className="text-sm text-gray-300 italic">"{activeLocationData.generalSurveyNotes}"</p>
-                                    </div>
-                                )}
+                                <div className="flex justify-between items-start mb-4"><h3 className="text-glr-accent font-bold uppercase text-sm flex items-center gap-2"><MapPin size={16}/> Accesso & Contatti</h3><a href={getRouteLink(activeLocationData.address)} target="_blank" rel="noopener noreferrer" className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded flex items-center gap-2 transition-colors"><Navigation size={14}/> Calcola Percorso da Sede</a></div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><p className="text-white font-bold text-lg mb-1">{activeLocationData.name}</p><p className="text-gray-400 text-sm mb-2">{activeLocationData.address}</p>{activeLocationData.mapsLink && <a href={activeLocationData.mapsLink} target="_blank" className="text-blue-400 text-xs hover:underline">Vedi posizione esatta (Maps)</a>}</div><div className="text-sm space-y-1"><p><span className="text-gray-500">Referente Location:</span> <span className="text-white font-bold">{activeLocationData.contactName}</span></p><p><span className="text-gray-500">Telefono:</span> <span className="text-white font-bold">{activeLocationData.contactPhone}</span></p><p><span className="text-gray-500">Orari:</span> <span className="text-white">{activeLocationData.accessHours}</span></p><p><span className="text-gray-500">ZTL:</span> <span className={activeLocationData.isZtl ? 'text-red-400 font-bold' : 'text-green-400'}>{activeLocationData.isZtl ? 'ATTIVA' : 'NO'}</span></p></div></div>
+                                {activeLocationData.generalSurveyNotes && (<div className="mt-4 pt-4 border-t border-glr-700"><p className="text-xs text-gray-500 uppercase mb-1">Note Generali</p><p className="text-sm text-gray-300 italic">"{activeLocationData.generalSurveyNotes}"</p></div>)}
                             </div>
-
-                            {/* LOGISTICS & POWER GRID */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="bg-glr-900/50 p-4 rounded-lg border border-glr-700">
-                                    <h3 className="text-glr-accent font-bold uppercase text-sm mb-3 flex items-center gap-2"><Truck size={16}/> Logistica</h3>
-                                    <div className="space-y-2 text-sm">
-                                        <div className="flex justify-between"><span>Piano Scarico:</span> <span className="text-white font-bold">{activeLocationData.logistics.loadFloor}</span></div>
-                                        <div className="flex justify-between"><span>Parcheggio:</span> <span className={activeLocationData.logistics.hasParking ? "text-green-400" : "text-red-400"}>{activeLocationData.logistics.hasParking ? 'SI' : 'NO'}</span></div>
-                                        <div className="flex justify-between"><span>Montacarichi:</span> <span className={activeLocationData.logistics.hasLift ? "text-green-400" : "text-gray-400"}>{activeLocationData.logistics.hasLift ? 'SI' : 'NO'}</span></div>
-                                        {activeLocationData.logistics.stairsDetails && <div className="text-xs text-gray-400 mt-2">Scale: {activeLocationData.logistics.stairsDetails}</div>}
-                                    </div>
-                                </div>
-                                <div className="bg-glr-900/50 p-4 rounded-lg border border-glr-700">
-                                    <h3 className="text-glr-accent font-bold uppercase text-sm mb-3 flex items-center gap-2"><Zap size={16}/> Corrente</h3>
-                                    <div className="space-y-2 text-sm">
-                                        <div className="flex gap-2">
-                                            {activeLocationData.power.hasCivil && <span className="bg-glr-800 px-2 py-1 rounded text-xs">Civile</span>}
-                                            {activeLocationData.power.hasIndustrial && <span className="bg-glr-800 px-2 py-1 rounded text-xs">Industriale {activeLocationData.power.industrialSockets.join(', ')}</span>}
-                                        </div>
-                                        {activeLocationData.power.requiresGenerator && <p className="text-red-400 font-bold">Serve Generatore</p>}
-                                        <p>Distanza Quadro: <span className="font-bold text-white">{activeLocationData.power.distanceFromPanel} mt</span></p>
-                                    </div>
-                                </div>
+                                <div className="bg-glr-900/50 p-4 rounded-lg border border-glr-700"><h3 className="text-glr-accent font-bold uppercase text-sm mb-3 flex items-center gap-2"><Truck size={16}/> Logistica</h3><div className="space-y-2 text-sm"><div className="flex justify-between"><span>Piano Scarico:</span> <span className="text-white font-bold">{activeLocationData.logistics.loadFloor}</span></div><div className="flex justify-between"><span>Parcheggio:</span> <span className={activeLocationData.logistics.hasParking ? "text-green-400" : "text-red-400"}>{activeLocationData.logistics.hasParking ? 'SI' : 'NO'}</span></div><div className="flex justify-between"><span>Montacarichi:</span> <span className={activeLocationData.logistics.hasLift ? "text-green-400" : "text-gray-400"}>{activeLocationData.logistics.hasLift ? 'SI' : 'NO'}</span></div>{activeLocationData.logistics.stairsDetails && <div className="text-xs text-gray-400 mt-2">Scale: {activeLocationData.logistics.stairsDetails}</div>}</div></div>
+                                <div className="bg-glr-900/50 p-4 rounded-lg border border-glr-700"><h3 className="text-glr-accent font-bold uppercase text-sm mb-3 flex items-center gap-2"><Zap size={16}/> Corrente</h3><div className="space-y-2 text-sm"><div className="flex gap-2">{activeLocationData.power.hasCivil && <span className="bg-glr-800 px-2 py-1 rounded text-xs">Civile</span>}{activeLocationData.power.hasIndustrial && <span className="bg-glr-800 px-2 py-1 rounded text-xs">Industriale {activeLocationData.power.industrialSockets.join(', ')}</span>}</div>{activeLocationData.power.requiresGenerator && <p className="text-red-400 font-bold">Serve Generatore</p>}<p>Distanza Quadro: <span className="font-bold text-white">{activeLocationData.power.distanceFromPanel} mt</span></p></div></div>
                             </div>
-
-                            {/* NETWORK & EQUIPMENT */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                 <div className="bg-glr-900/50 p-4 rounded-lg border border-glr-700">
-                                    <h3 className="text-glr-accent font-bold uppercase text-sm mb-3 flex items-center gap-2"><Network size={16}/> Rete & IT</h3>
-                                    {activeLocationData.network.isUnavailable ? <p className="text-red-400 text-sm font-bold flex items-center gap-2"><WifiOff size={16}/> Non Disponibile</p> : (
-                                        <div className="space-y-2 text-sm">
-                                            <div className="flex gap-2">
-                                                {activeLocationData.network.hasWired && <span className="text-green-400">Cablata</span>}
-                                                {activeLocationData.network.hasWifi && <span className="text-green-400">Wi-Fi</span>}
-                                            </div>
-                                            {activeLocationData.network.hasWallLan && <p>Lan Muro: {activeLocationData.network.wallLanDistance} mt</p>}
-                                            <p>IP: {activeLocationData.network.addressing}</p>
-                                        </div>
-                                    )}
-                                 </div>
-                                 <div className="bg-glr-900/50 p-4 rounded-lg border border-glr-700">
-                                    <h3 className="text-glr-accent font-bold uppercase text-sm mb-3 flex items-center gap-2"><Monitor size={16}/> Dotazioni Sala</h3>
-                                    <div className="space-y-2 text-sm">
-                                        {activeLocationData.equipment.hasPerimeterSockets && <p className="text-green-400">Prese Perimetrali Presenti</p>}
-                                        {activeLocationData.equipment.audio.present && <p>Audio: {activeLocationData.equipment.audio.hasPA ? 'PA' : ''} {activeLocationData.equipment.audio.hasMics ? 'Mic' : ''}</p>}
-                                        {activeLocationData.equipment.video.present && <p>Video: {activeLocationData.equipment.video.hasProjector ? 'VPR' : ''} {activeLocationData.equipment.video.hasLedwall ? 'Ledwall' : ''}</p>}
-                                        {activeLocationData.equipment.hasLights && <p>Luci: Presenti</p>}
-                                    </div>
-                                 </div>
-                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className="bg-glr-900/50 p-4 rounded-lg border border-glr-700"><h3 className="text-glr-accent font-bold uppercase text-sm mb-3 flex items-center gap-2"><Network size={16}/> Rete & IT</h3>{activeLocationData.network.isUnavailable ? <p className="text-red-400 text-sm font-bold flex items-center gap-2"><WifiOff size={16}/> Non Disponibile</p> : (<div className="space-y-2 text-sm"><div className="flex gap-2">{activeLocationData.network.hasWired && <span className="text-green-400">Cablata</span>}{activeLocationData.network.hasWifi && <span className="text-green-400">Wi-Fi</span>}</div>{activeLocationData.network.hasWallLan && <p>Lan Muro: {activeLocationData.network.wallLanDistance} mt</p>}<p>IP: {activeLocationData.network.addressing}</p></div>)}</div><div className="bg-glr-900/50 p-4 rounded-lg border border-glr-700"><h3 className="text-glr-accent font-bold uppercase text-sm mb-3 flex items-center gap-2"><Monitor size={16}/> Dotazioni Sala</h3><div className="space-y-2 text-sm">{activeLocationData.equipment.hasPerimeterSockets && <p className="text-green-400">Prese Perimetrali Presenti</p>}{activeLocationData.equipment.audio.present && <p>Audio: {activeLocationData.equipment.audio.hasPA ? 'PA' : ''} {activeLocationData.equipment.audio.hasMics ? 'Mic' : ''}</p>}{activeLocationData.equipment.video.present && <p>Video: {activeLocationData.equipment.video.hasProjector ? 'VPR' : ''} {activeLocationData.equipment.video.hasLedwall ? 'Ledwall' : ''}</p>}{activeLocationData.equipment.hasLights && <p>Luci: Presenti</p>}</div></div></div>
                         </div>
                     ) : <p className="text-center text-gray-500 py-10">Nessuna location selezionata. Torna ai "Dettagli Evento" per selezionarne una o inserire un indirizzo manuale.</p>}
                 </div>
@@ -821,290 +623,49 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
             
             {activeTab === 'PHASES' && (
                 <div className="space-y-8 animate-fade-in">
-                     {/* HOTEL & HOSPITALITY (Only if Away Job) */}
-                     {activeJob.isAwayJob && (
-                         <div className="bg-blue-900/20 p-4 rounded-xl border border-blue-800/50 mb-6">
-                             <h3 className="text-blue-300 font-bold flex items-center gap-2 text-lg mb-4"><Hotel size={20}/> Soggiorno & Hotel</h3>
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                 <div>
-                                     <label className="block text-xs text-blue-200 mb-1 font-bold">Nome Hotel / Struttura</label>
-                                     <div className="flex items-center gap-2">
-                                         <BedDouble size={16} className="text-blue-400"/>
-                                         <input disabled={!canEdit} type="text" value={activeJob.hotelName || ''} onChange={e => setActiveJob({...activeJob, hotelName: e.target.value})} className="w-full bg-glr-900 border border-blue-800 rounded p-2 text-white text-sm" placeholder="Es. Hotel Da Vinci"/>
-                                     </div>
-                                 </div>
-                                 <div>
-                                     <label className="block text-xs text-blue-200 mb-1 font-bold">Indirizzo</label>
-                                     <div className="flex items-center gap-2">
-                                         <MapPin size={16} className="text-blue-400"/>
-                                         <input disabled={!canEdit} type="text" value={activeJob.hotelAddress || ''} onChange={e => setActiveJob({...activeJob, hotelAddress: e.target.value})} className="w-full bg-glr-900 border border-blue-800 rounded p-2 text-white text-sm" placeholder="Via dei Fiori 2, Roma"/>
-                                     </div>
-                                 </div>
-                             </div>
-                         </div>
-                     )}
-
-                     {/* PHASES */}
-                     <div className="bg-glr-900/30 p-4 rounded-xl border border-glr-700/50">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-white font-bold flex items-center gap-2 text-lg"><Clock size={20} className="text-glr-accent"/> Fasi Operative</h3>
-                            {canEdit && <button onClick={addPhase} className="bg-glr-700 hover:bg-white hover:text-glr-900 text-white px-4 py-2 rounded font-bold text-sm flex items-center gap-2 transition-colors"><Plus size={18}/> Aggiungi Fase</button>}
-                        </div>
-                        
-                        {/* Phases Header */}
-                        <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs uppercase font-bold text-gray-500 border-b border-glr-700/50 mb-2">
-                            <div className="col-span-1 text-center">#</div>
-                            <div className="col-span-5">Descrizione Attività</div>
-                            <div className="col-span-3">Inizio</div>
-                            <div className="col-span-3">Fine</div>
-                        </div>
-
-                        <div className="space-y-3">
-                            {activeJob.phases.map((phase, idx) => (
-                                <div key={phase.id} className="bg-glr-800 border border-glr-700 p-4 rounded-lg grid grid-cols-1 md:grid-cols-12 gap-4 items-center shadow-sm hover:border-glr-500 transition-colors relative group">
-                                    <div className="col-span-1 text-center">
-                                        <span className="bg-glr-900 text-gray-400 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm">{idx + 1}</span>
-                                    </div>
-                                    <div className="col-span-11 md:col-span-5">
-                                        <input disabled={!canEdit} type="text" value={phase.name} onChange={e => updatePhase(phase.id, 'name', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-3 text-white text-base focus:border-glr-accent outline-none" placeholder="Nome fase (es. Montaggio)"/>
-                                    </div>
-                                    <div className="col-span-6 md:col-span-3">
-                                        <label className="block md:hidden text-xs text-gray-500 mb-1">Inizio</label>
-                                        <input disabled={!canEdit} type="datetime-local" value={phase.start} onChange={e => updatePhase(phase.id, 'start', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-3 text-white text-sm"/>
-                                    </div>
-                                    <div className="col-span-6 md:col-span-3 relative">
-                                        <label className="block md:hidden text-xs text-gray-500 mb-1">Fine</label>
-                                        <input disabled={!canEdit} type="datetime-local" value={phase.end} onChange={e => updatePhase(phase.id, 'end', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-3 text-white text-sm"/>
-                                        {canEdit && <button onClick={() => removePhase(phase.id)} className="absolute -right-2 -top-2 md:top-3 md:-right-12 bg-red-900/20 text-red-400 p-2 rounded-full hover:bg-red-600 hover:text-white transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={16}/></button>}
-                                    </div>
-                                </div>
-                            ))}
-                            {activeJob.phases.length === 0 && <p className="text-center text-gray-500 py-4 italic">Nessuna fase operativa inserita.</p>}
-                        </div>
-                     </div>
-
-                     {/* LOGISTICS */}
-                     <div className="bg-glr-900/30 p-4 rounded-xl border border-glr-700/50">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-white font-bold flex items-center gap-2 text-lg"><Truck size={20} className="text-glr-accent"/> Logistica Mezzi</h3>
-                            {canEdit && <button onClick={addVehicle} className="bg-glr-700 hover:bg-white hover:text-glr-900 text-white px-4 py-2 rounded font-bold text-sm flex items-center gap-2 transition-colors"><Plus size={18}/> Aggiungi Mezzo</button>}
-                        </div>
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {activeJob.vehicles.map(v => (
-                                <div key={v.id} className="bg-glr-800 border border-glr-700 p-5 rounded-xl shadow-lg relative hover:border-glr-500 transition-all group">
-                                    <div className="flex gap-4 mb-4 items-center">
-                                        <div className="flex-1">
-                                            <label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Tipologia Mezzo</label>
-                                            <select disabled={!canEdit} value={v.type} onChange={e => updateVehicle(v.id, 'type', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded text-white text-base p-3">
-                                                {Object.values(VehicleType).map(t => <option key={t} value={t}>{t}</option>)}
-                                            </select>
-                                        </div>
-                                        <div className="w-20">
-                                            <label className="block text-xs text-gray-400 mb-1 uppercase font-bold text-center">Qtà</label>
-                                            <input disabled={!canEdit} type="number" min="1" value={v.quantity} onChange={e => updateVehicle(v.id, 'quantity', parseInt(e.target.value))} className="w-full bg-glr-900 border border-glr-600 rounded text-white text-base p-3 text-center"/>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <label className="flex items-center gap-2 cursor-pointer bg-glr-900 px-3 py-2 rounded border border-glr-600 hover:border-glr-400 transition-colors w-full">
-                                            <input disabled={!canEdit} type="checkbox" checked={v.isRental} onChange={e => updateVehicle(v.id, 'isRental', e.target.checked)} className="w-5 h-5 rounded text-glr-accent bg-glr-800 border-glr-500"/>
-                                            <span className="text-sm font-bold text-white">Richiede Noleggio Esterno</span>
-                                        </label>
-                                    </div>
-
-                                    {v.isRental && (
-                                        <div className="mt-4 p-4 bg-blue-900/10 border border-blue-800/50 rounded-lg space-y-4 animate-fade-in">
-                                            <div className="flex items-center gap-2 text-blue-300 text-xs uppercase font-bold border-b border-blue-800/30 pb-2 mb-2">
-                                                <BriefcaseIcon size={12}/> Dettagli Noleggio
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="col-span-2">
-                                                    <label className="block text-xs text-gray-400 mb-1">Fornitore</label>
-                                                    <input disabled={!canEdit} type="text" placeholder="Nome Azienda" value={v.rentalCompany || ''} onChange={e => updateVehicle(v.id, 'rentalCompany', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-sm text-white"/>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs text-gray-400 mb-1">Data Ritiro</label>
-                                                    <input disabled={!canEdit} type="datetime-local" value={v.pickupDate || ''} onChange={e => updateVehicle(v.id, 'pickupDate', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-sm text-white"/>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs text-gray-400 mb-1">Data Riconsegna</label>
-                                                    <input disabled={!canEdit} type="datetime-local" value={v.returnDate || ''} onChange={e => updateVehicle(v.id, 'returnDate', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-sm text-white"/>
-                                                </div>
-                                                <div className="col-span-2">
-                                                    <label className="block text-xs text-gray-400 mb-1">Costo Stimato (€)</label>
-                                                    <input disabled={!canEdit} type="number" placeholder="0.00" value={v.cost || ''} onChange={e => updateVehicle(v.id, 'cost', parseFloat(e.target.value))} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-sm text-white"/>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    
-                                    {canEdit && <button onClick={() => removeVehicle(v.id)} className="absolute top-4 right-4 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity bg-glr-900 p-2 rounded-full shadow-sm"><Trash2 size={18}/></button>}
-                                </div>
-                            ))}
-                            {activeJob.vehicles.length === 0 && <p className="col-span-full text-center text-gray-500 py-4 italic">Nessun mezzo assegnato.</p>}
-                        </div>
-                     </div>
-
-                     {/* PORTERAGE (Facchinaggio) */}
-                     <div className="bg-glr-900/30 p-4 rounded-xl border border-glr-700/50">
-                        <div className="flex items-center gap-3 mb-4">
-                             <h3 className="text-white font-bold flex items-center gap-2 text-lg"><Users size={20} className="text-glr-accent"/> Gestione Facchinaggio</h3>
-                        </div>
-                        <label className="flex items-center gap-2 cursor-pointer w-fit mb-4">
-                             <input disabled={!canEdit} type="checkbox" checked={activeJob.hasPorterage} onChange={e => setActiveJob({...activeJob, hasPorterage: e.target.checked})} className="rounded bg-glr-800 border-glr-600 text-glr-accent w-5 h-5"/>
-                             <span className="text-sm font-bold text-white">Servizio Facchinaggio Richiesto</span>
-                        </label>
-
-                        {activeJob.hasPorterage && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in bg-glr-800 border border-glr-700 p-4 rounded-lg">
-                                <div>
-                                    <label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Cooperativa / Azienda</label>
-                                    <input disabled={!canEdit} type="text" value={activeJob.porterageAgency || ''} onChange={e => setActiveJob({...activeJob, porterageAgency: e.target.value})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm" placeholder="Nome Cooperativa"/>
-                                </div>
-                                <div>
-                                    <label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Data & Ora Convocazione</label>
-                                    <input disabled={!canEdit} type="datetime-local" value={activeJob.porterageTime || ''} onChange={e => setActiveJob({...activeJob, porterageTime: e.target.value})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm"/>
-                                </div>
-                            </div>
-                        )}
-                     </div>
+                     {/* ... (Existing Phases & Logistics Code) ... */}
+                     {activeJob.isAwayJob && (<div className="bg-blue-900/20 p-4 rounded-xl border border-blue-800/50 mb-6"><h3 className="text-blue-300 font-bold flex items-center gap-2 text-lg mb-4"><Hotel size={20}/> Soggiorno & Hotel</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-xs text-blue-200 mb-1 font-bold">Nome Hotel / Struttura</label><div className="flex items-center gap-2"><BedDouble size={16} className="text-blue-400"/><input disabled={!canEdit} type="text" value={activeJob.hotelName || ''} onChange={e => setActiveJob({...activeJob, hotelName: e.target.value})} className="w-full bg-glr-900 border border-blue-800 rounded p-2 text-white text-sm" placeholder="Es. Hotel Da Vinci"/></div></div><div><label className="block text-xs text-blue-200 mb-1 font-bold">Indirizzo</label><div className="flex items-center gap-2"><MapPin size={16} className="text-blue-400"/><input disabled={!canEdit} type="text" value={activeJob.hotelAddress || ''} onChange={e => setActiveJob({...activeJob, hotelAddress: e.target.value})} className="w-full bg-glr-900 border border-blue-800 rounded p-2 text-white text-sm" placeholder="Via dei Fiori 2, Roma"/></div></div></div></div>)}
+                     <div className="bg-glr-900/30 p-4 rounded-xl border border-glr-700/50"><div className="flex justify-between items-center mb-4"><h3 className="text-white font-bold flex items-center gap-2 text-lg"><Clock size={20} className="text-glr-accent"/> Fasi Operative</h3>{canEdit && <button onClick={addPhase} className="bg-glr-700 hover:bg-white hover:text-glr-900 text-white px-4 py-2 rounded font-bold text-sm flex items-center gap-2 transition-colors"><Plus size={18}/> Aggiungi Fase</button>}</div><div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs uppercase font-bold text-gray-500 border-b border-glr-700/50 mb-2"><div className="col-span-1 text-center">#</div><div className="col-span-5">Descrizione Attività</div><div className="col-span-3">Inizio</div><div className="col-span-3">Fine</div></div><div className="space-y-3">{activeJob.phases.map((phase, idx) => (<div key={phase.id} className="bg-glr-800 border border-glr-700 p-4 rounded-lg grid grid-cols-1 md:grid-cols-12 gap-4 items-center shadow-sm hover:border-glr-500 transition-colors relative group"><div className="col-span-1 text-center"><span className="bg-glr-900 text-gray-400 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm">{idx + 1}</span></div><div className="col-span-11 md:col-span-5"><input disabled={!canEdit} type="text" value={phase.name} onChange={e => updatePhase(phase.id, 'name', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-3 text-white text-base focus:border-glr-accent outline-none" placeholder="Nome fase (es. Montaggio)"/></div><div className="col-span-6 md:col-span-3"><label className="block md:hidden text-xs text-gray-500 mb-1">Inizio</label><input disabled={!canEdit} type="datetime-local" value={phase.start} onChange={e => updatePhase(phase.id, 'start', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-3 text-white text-sm"/></div><div className="col-span-6 md:col-span-3 relative"><label className="block md:hidden text-xs text-gray-500 mb-1">Fine</label><input disabled={!canEdit} type="datetime-local" value={phase.end} onChange={e => updatePhase(phase.id, 'end', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-3 text-white text-sm"/>{canEdit && <button onClick={() => removePhase(phase.id)} className="absolute -right-2 -top-2 md:top-3 md:-right-12 bg-red-900/20 text-red-400 p-2 rounded-full hover:bg-red-600 hover:text-white transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={16}/></button>}</div></div>))}{activeJob.phases.length === 0 && <p className="text-center text-gray-500 py-4 italic">Nessuna fase operativa inserita.</p>}</div></div>
+                     <div className="bg-glr-900/30 p-4 rounded-xl border border-glr-700/50"><div className="flex justify-between items-center mb-6"><h3 className="text-white font-bold flex items-center gap-2 text-lg"><Truck size={20} className="text-glr-accent"/> Logistica Mezzi</h3>{canEdit && <button onClick={addVehicle} className="bg-glr-700 hover:bg-white hover:text-glr-900 text-white px-4 py-2 rounded font-bold text-sm flex items-center gap-2 transition-colors"><Plus size={18}/> Aggiungi Mezzo</button>}</div><div className="grid grid-cols-1 lg:grid-cols-2 gap-6">{activeJob.vehicles.map(v => (<div key={v.id} className="bg-glr-800 border border-glr-700 p-5 rounded-xl shadow-lg relative hover:border-glr-500 transition-all group"><div className="flex gap-4 mb-4 items-center"><div className="flex-1"><label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Tipologia Mezzo</label><select disabled={!canEdit} value={v.type} onChange={e => updateVehicle(v.id, 'type', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded text-white text-base p-3">{Object.values(VehicleType).map(t => <option key={t} value={t}>{t}</option>)}</select></div><div className="w-20"><label className="block text-xs text-gray-400 mb-1 uppercase font-bold text-center">Qtà</label><input disabled={!canEdit} type="number" min="1" value={v.quantity} onChange={e => updateVehicle(v.id, 'quantity', parseInt(e.target.value))} className="w-full bg-glr-900 border border-glr-600 rounded text-white text-base p-3 text-center"/></div></div><div className="flex items-center gap-3 mb-2"><label className="flex items-center gap-2 cursor-pointer bg-glr-900 px-3 py-2 rounded border border-glr-600 hover:border-glr-400 transition-colors w-full"><input disabled={!canEdit} type="checkbox" checked={v.isRental} onChange={e => updateVehicle(v.id, 'isRental', e.target.checked)} className="w-5 h-5 rounded text-glr-accent bg-glr-800 border-glr-500"/><span className="text-sm font-bold text-white">Richiede Noleggio Esterno</span></label></div>{v.isRental && (<div className="mt-4 p-4 bg-blue-900/10 border border-blue-800/50 rounded-lg space-y-4 animate-fade-in"><div className="flex items-center gap-2 text-blue-300 text-xs uppercase font-bold border-b border-blue-800/30 pb-2 mb-2"><BriefcaseIcon size={12}/> Dettagli Noleggio</div><div className="grid grid-cols-2 gap-4"><div className="col-span-2"><label className="block text-xs text-gray-400 mb-1">Fornitore</label><input disabled={!canEdit} type="text" placeholder="Nome Azienda" value={v.rentalCompany || ''} onChange={e => updateVehicle(v.id, 'rentalCompany', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-sm text-white"/></div><div><label className="block text-xs text-gray-400 mb-1">Data Ritiro</label><input disabled={!canEdit} type="datetime-local" value={v.pickupDate || ''} onChange={e => updateVehicle(v.id, 'pickupDate', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-sm text-white"/></div><div><label className="block text-xs text-gray-400 mb-1">Data Riconsegna</label><input disabled={!canEdit} type="datetime-local" value={v.returnDate || ''} onChange={e => updateVehicle(v.id, 'returnDate', e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-sm text-white"/></div><div className="col-span-2"><label className="block text-xs text-gray-400 mb-1">Costo Stimato (€)</label><input disabled={!canEdit} type="number" placeholder="0.00" value={v.cost || ''} onChange={e => updateVehicle(v.id, 'cost', parseFloat(e.target.value))} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-sm text-white"/></div></div></div>)}{canEdit && <button onClick={() => removeVehicle(v.id)} className="absolute top-4 right-4 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity bg-glr-900 p-2 rounded-full shadow-sm"><Trash2 size={18}/></button>}</div>))}{activeJob.vehicles.length === 0 && <p className="col-span-full text-center text-gray-500 py-4 italic">Nessun mezzo assegnato.</p>}</div></div>
+                     <div className="bg-glr-900/30 p-4 rounded-xl border border-glr-700/50"><div className="flex items-center gap-3 mb-4"><h3 className="text-white font-bold flex items-center gap-2 text-lg"><Users size={20} className="text-glr-accent"/> Gestione Facchinaggio</h3></div><label className="flex items-center gap-2 cursor-pointer w-fit mb-4"><input disabled={!canEdit} type="checkbox" checked={activeJob.hasPorterage} onChange={e => setActiveJob({...activeJob, hasPorterage: e.target.checked})} className="rounded bg-glr-800 border-glr-600 text-glr-accent w-5 h-5"/><span className="text-sm font-bold text-white">Servizio Facchinaggio Richiesto</span></label>{activeJob.hasPorterage && (<div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in bg-glr-800 border border-glr-700 p-4 rounded-lg"><div><label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Cooperativa / Azienda</label><input disabled={!canEdit} type="text" value={activeJob.porterageAgency || ''} onChange={e => setActiveJob({...activeJob, porterageAgency: e.target.value})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm" placeholder="Nome Cooperativa"/></div><div><label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Data & Ora Convocazione</label><input disabled={!canEdit} type="datetime-local" value={activeJob.porterageTime || ''} onChange={e => setActiveJob({...activeJob, porterageTime: e.target.value})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white text-sm"/></div></div>)}</div>
                 </div>
             )}
             
-            {/* MATERIAL & CREW TABS REMAIN SAME ... */}
             {activeTab === 'MATERIAL' && (
                 <div className="flex flex-col md:flex-row gap-6 h-full overflow-hidden">
-                    
-                    {/* LEFT COLUMN: BROWSER & ADDER */}
+                    {/* ... (Existing Material Code) ... */}
                     {canEdit && (
                         <div className="w-full md:w-1/2 flex flex-col gap-4 border-r border-glr-700 md:pr-4 overflow-hidden">
-                             {/* QUICK ITEMS ROW */}
                              <div className="flex flex-wrap gap-2 mb-2 pb-2 shrink-0">
                                 {quickItems.map(qItem => {
                                     const mockId = `quick-${qItem.name}`;
                                     const justAdded = addedFeedback[mockId];
                                     const isSpecial = qItem.name === 'Router 5G';
-                                    
-                                    return (
-                                        <button 
-                                            key={qItem.name} 
-                                            onClick={() => handleQuickItemToggle(qItem)} 
-                                            className={`text-xs px-3 py-2 rounded border flex items-center gap-2 transition-all shadow-sm
-                                                ${justAdded ? 'bg-green-600 text-white border-green-500 scale-105' : 
-                                                  isSpecial ? 'bg-orange-900/40 text-orange-200 border-orange-500 hover:bg-orange-800' :
-                                                  'bg-glr-900 border-glr-600 text-gray-300 hover:bg-glr-800 hover:text-white'}`}
-                                        >
-                                            {justAdded ? <Check size={14}/> : <Plus size={14}/>} {qItem.name}
-                                        </button>
-                                    )
+                                    return (<button key={qItem.name} onClick={() => handleQuickItemToggle(qItem)} className={`text-xs px-3 py-2 rounded border flex items-center gap-2 transition-all shadow-sm ${justAdded ? 'bg-green-600 text-white border-green-500 scale-105' : isSpecial ? 'bg-orange-900/40 text-orange-200 border-orange-500 hover:bg-orange-800' :'bg-glr-900 border-glr-600 text-gray-300 hover:bg-glr-800 hover:text-white'}`}>{justAdded ? <Check size={14}/> : <Plus size={14}/>} {qItem.name}</button>)
                                 })}
-                                <button onClick={() => setIsImportKitModalOpen(true)} className="text-xs px-3 py-2 rounded border border-blue-700 bg-blue-900/20 text-blue-300 hover:bg-blue-900/40 whitespace-nowrap flex items-center gap-2">
-                                    <Box size={14}/> Importa Kit
-                                </button>
+                                <button onClick={() => setIsImportKitModalOpen(true)} className="text-xs px-3 py-2 rounded border border-blue-700 bg-blue-900/20 text-blue-300 hover:bg-blue-900/40 whitespace-nowrap flex items-center gap-2"><Box size={14}/> Importa Kit</button>
                              </div>
-
-                             {/* TOGGLE TABS */}
-                            <div className="flex bg-glr-900 p-1 rounded-lg shrink-0">
-                                 <button onClick={() => setAddMode('BROWSE')} className={`flex-1 py-2 rounded text-sm font-bold transition-all flex items-center justify-center gap-2 ${addMode === 'BROWSE' ? 'bg-glr-700 text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}><Search size={16}/> Magazzino</button>
-                                 <button onClick={() => setAddMode('MANUAL')} className={`flex-1 py-2 rounded text-sm font-bold transition-all flex items-center justify-center gap-2 ${addMode === 'MANUAL' ? 'bg-glr-700 text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}><Edit3 size={16}/> Manuale / Esterno</button>
-                            </div>
-
+                            <div className="flex bg-glr-900 p-1 rounded-lg shrink-0"><button onClick={() => setAddMode('BROWSE')} className={`flex-1 py-2 rounded text-sm font-bold transition-all flex items-center justify-center gap-2 ${addMode === 'BROWSE' ? 'bg-glr-700 text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}><Search size={16}/> Magazzino</button><button onClick={() => setAddMode('MANUAL')} className={`flex-1 py-2 rounded text-sm font-bold transition-all flex items-center justify-center gap-2 ${addMode === 'MANUAL' ? 'bg-glr-700 text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}><Edit3 size={16}/> Manuale / Esterno</button></div>
                             {addMode === 'BROWSE' ? (
                                 <div className="flex flex-col flex-1 overflow-hidden gap-3">
-                                    {/* FILTERS */}
-                                    <div className="flex gap-2 shrink-0">
-                                        <div className="w-1/2">
-                                            <select value={invCategoryFilter} onChange={e => setInvCategoryFilter(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded text-white text-xs p-2 outline-none focus:border-glr-accent">
-                                                <option value="ALL">Cat: Tutte</option>
-                                                {['Audio', 'Video', 'Luci', 'Strutture', 'Cavi', 'Rete', 'Accessori'].map(c => <option key={c} value={c}>{c}</option>)}
-                                            </select>
-                                        </div>
-                                        <div className="w-1/2">
-                                            <select value={invTypeFilter} onChange={e => setInvTypeFilter(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded text-white text-xs p-2 outline-none focus:border-glr-accent">
-                                                {availableTypes.map(t => <option key={t} value={t}>{t === 'ALL' ? 'Tipo: Tutti' : t}</option>)}
-                                            </select>
-                                        </div>
-                                    </div>
-                                    
-                                    {/* SEARCH */}
-                                    <div className="relative shrink-0">
-                                        <Search size={16} className="absolute left-3 top-2.5 text-gray-400"/>
-                                        <input type="text" placeholder="Cerca articolo..." value={invSearchTerm} onChange={e => setInvSearchTerm(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded pl-9 pr-3 py-2 text-white text-sm focus:border-glr-accent outline-none"/>
-                                    </div>
-
-                                    {/* LIST */}
-                                    <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
-                                        {filteredInventory.map(item => {
-                                            const added = addedFeedback[item.id];
-                                            return (
-                                                <div key={item.id} onClick={() => handleInventoryAdd(item)} className="bg-glr-900 p-3 rounded border border-glr-700 cursor-pointer hover:border-glr-500 hover:bg-glr-800 transition-all group flex justify-between items-center relative">
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2 mb-1">
-                                                            <span className="text-sm font-bold text-white truncate group-hover:text-glr-accent">{item.name}</span>
-                                                            <span className="text-[10px] text-gray-500 font-mono">Disp: {item.quantityOwned}</span>
-                                                        </div>
-                                                        <div className="flex gap-2 text-[10px] text-gray-500">
-                                                            <span className="bg-glr-950 px-1.5 py-0.5 rounded border border-glr-800">{item.category}</span>
-                                                            {item.type && <span className="opacity-70">• {item.type}</span>}
-                                                        </div>
-                                                    </div>
-                                                    <button className={`p-2 rounded-full transition-colors border ${added ? 'bg-green-600 text-white border-green-500' : 'bg-glr-950 text-green-500 hover:bg-green-500 hover:text-white border-glr-800 group-hover:border-green-500'}`}>
-                                                        {added ? <Check size={16}/> : <Plus size={16}/>}
-                                                    </button>
-                                                </div>
-                                            )
-                                        })}
-                                        {filteredInventory.length === 0 && <div className="text-center text-gray-500 py-10 italic">Nessun articolo trovato.</div>}
-                                    </div>
+                                    <div className="flex gap-2 shrink-0"><div className="w-1/2"><select value={invCategoryFilter} onChange={e => setInvCategoryFilter(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded text-white text-xs p-2 outline-none focus:border-glr-accent"><option value="ALL">Cat: Tutte</option>{['Audio', 'Video', 'Luci', 'Strutture', 'Cavi', 'Rete', 'Accessori'].map(c => <option key={c} value={c}>{c}</option>)}</select></div><div className="w-1/2"><select value={invTypeFilter} onChange={e => setInvTypeFilter(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded text-white text-xs p-2 outline-none focus:border-glr-accent">{availableTypes.map(t => <option key={t} value={t}>{t === 'ALL' ? 'Tipo: Tutti' : t}</option>)}</select></div></div>
+                                    <div className="relative shrink-0"><Search size={16} className="absolute left-3 top-2.5 text-gray-400"/><input type="text" placeholder="Cerca articolo..." value={invSearchTerm} onChange={e => setInvSearchTerm(e.target.value)} className="w-full bg-glr-900 border border-glr-600 rounded pl-9 pr-3 py-2 text-white text-sm focus:border-glr-accent outline-none"/></div>
+                                    <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">{filteredInventory.map(item => { const added = addedFeedback[item.id]; return (<div key={item.id} onClick={() => handleInventoryAdd(item)} className="bg-glr-900 p-3 rounded border border-glr-700 cursor-pointer hover:border-glr-500 hover:bg-glr-800 transition-all group flex justify-between items-center relative"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 mb-1"><span className="text-sm font-bold text-white truncate group-hover:text-glr-accent">{item.name}</span><span className="text-[10px] text-gray-500 font-mono">Disp: {item.quantityOwned}</span></div><div className="flex gap-2 text-[10px] text-gray-500"><span className="bg-glr-950 px-1.5 py-0.5 rounded border border-glr-800">{item.category}</span>{item.type && <span className="opacity-70">• {item.type}</span>}</div></div><button className={`p-2 rounded-full transition-colors border ${added ? 'bg-green-600 text-white border-green-500' : 'bg-glr-950 text-green-500 hover:bg-green-500 hover:text-white border-glr-800 group-hover:border-green-500'}`}>{added ? <Check size={16}/> : <Plus size={16}/>}</button></div>)})} {filteredInventory.length === 0 && <div className="text-center text-gray-500 py-10 italic">Nessun articolo trovato.</div>}</div>
                                 </div>
                             ) : (
                                 <div className="bg-glr-900 border border-glr-700 p-4 rounded-xl space-y-4">
-                                    <div>
-                                        <label className="block text-xs text-gray-400 mb-1">Nome Materiale</label>
-                                        <input type="text" value={manualName} onChange={e => setManualName(e.target.value)} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm focus:border-glr-accent outline-none" placeholder="Es. Noleggio Service Audio"/>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                         <div>
-                                            <label className="block text-xs text-gray-400 mb-1">Categoria</label>
-                                            <select value={manualCategory} onChange={e => setManualCategory(e.target.value)} className="w-full bg-glr-800 border border-glr-600 rounded text-white text-sm p-2"><option>Audio</option><option>Video</option><option>Luci</option><option>Cavi</option><option>Strutture</option><option>Altro</option></select>
-                                         </div>
-                                         <div>
-                                            <label className="block text-xs text-gray-400 mb-1">Tipologia</label>
-                                            <input type="text" value={manualType} onChange={e => setManualType(e.target.value)} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm" placeholder="Es. Extra"/>
-                                         </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs text-gray-400 mb-1">Quantità</label>
-                                            <input type="number" min="1" value={manualQty} onChange={e => setManualQty(parseInt(e.target.value))} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm"/>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs text-gray-400 mb-1">Costo Unit. (€)</label>
-                                            <input type="number" value={manualCost} onChange={e => setManualCost(parseFloat(e.target.value))} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm" placeholder="0.00"/>
-                                        </div>
-                                    </div>
-                                     <label className="flex items-center gap-2 cursor-pointer bg-glr-800 p-2 rounded border border-glr-600">
-                                        <input type="checkbox" checked={manualIsExternal} onChange={e => setManualIsExternal(e.target.checked)} className="rounded bg-glr-900 border-glr-500 text-glr-accent"/>
-                                        <span className="text-sm text-gray-300">Noleggio Esterno</span>
-                                    </label>
-                                    {manualIsExternal && (
-                                        <div>
-                                            <label className="block text-xs text-gray-400 mb-1">Fornitore</label>
-                                            <input type="text" value={manualSupplier} onChange={e => setManualSupplier(e.target.value)} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm" placeholder="Nome fornitore"/>
-                                        </div>
-                                    )}
+                                    <div><label className="block text-xs text-gray-400 mb-1">Nome Materiale</label><input type="text" value={manualName} onChange={e => setManualName(e.target.value)} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm focus:border-glr-accent outline-none" placeholder="Es. Noleggio Service Audio"/></div>
+                                    <div className="grid grid-cols-2 gap-4"><div><label className="block text-xs text-gray-400 mb-1">Categoria</label><select value={manualCategory} onChange={e => setManualCategory(e.target.value)} className="w-full bg-glr-800 border border-glr-600 rounded text-white text-sm p-2"><option>Audio</option><option>Video</option><option>Luci</option><option>Cavi</option><option>Strutture</option><option>Altro</option></select></div><div><label className="block text-xs text-gray-400 mb-1">Tipologia</label><input type="text" value={manualType} onChange={e => setManualType(e.target.value)} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm" placeholder="Es. Extra"/></div></div>
+                                    <div className="grid grid-cols-2 gap-4"><div><label className="block text-xs text-gray-400 mb-1">Quantità</label><input type="number" min="1" value={manualQty} onChange={e => setManualQty(parseInt(e.target.value))} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm"/></div><div><label className="block text-xs text-gray-400 mb-1">Costo Unit. (€)</label><input type="number" value={manualCost} onChange={e => setManualCost(parseFloat(e.target.value))} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm" placeholder="0.00"/></div></div>
+                                     <label className="flex items-center gap-2 cursor-pointer bg-glr-800 p-2 rounded border border-glr-600"><input type="checkbox" checked={manualIsExternal} onChange={e => setManualIsExternal(e.target.checked)} className="rounded bg-glr-900 border-glr-500 text-glr-accent"/><span className="text-sm text-gray-300">Noleggio Esterno</span></label>
+                                    {manualIsExternal && (<div><label className="block text-xs text-gray-400 mb-1">Fornitore</label><input type="text" value={manualSupplier} onChange={e => setManualSupplier(e.target.value)} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white text-sm" placeholder="Nome fornitore"/></div>)}
                                     <button onClick={handleAddManualItem} disabled={!manualName} className="w-full bg-glr-700 hover:bg-white hover:text-glr-900 text-white py-2 rounded font-bold transition-colors disabled:opacity-50 mt-2">Aggiungi Materiale</button>
                                 </div>
                             )}
                         </div>
                     )}
-
-                    {/* RIGHT COLUMN: LIST */}
                     <div className="w-full md:w-1/2 flex flex-col bg-glr-900 rounded-xl border border-glr-700 overflow-hidden">
-                        <div className="bg-glr-950 p-3 border-b border-glr-800 flex justify-between items-center shrink-0">
-                            <h4 className="text-sm font-bold text-gray-300 uppercase flex items-center gap-2"><Layers size={14}/> Lista Materiale</h4>
-                            <span className="bg-glr-800 text-glr-accent px-2 py-0.5 rounded text-xs font-mono">{activeJob.materialList.reduce((acc, i) => acc + i.quantity, 0)} Pz.</span>
-                        </div>
+                        <div className="bg-glr-950 p-3 border-b border-glr-800 flex justify-between items-center shrink-0"><h4 className="text-sm font-bold text-gray-300 uppercase flex items-center gap-2"><Layers size={14}/> Lista Materiale</h4><span className="bg-glr-800 text-glr-accent px-2 py-0.5 rounded text-xs font-mono">{activeJob.materialList.reduce((acc, i) => acc + i.quantity, 0)} Pz.</span></div>
                         <div className="overflow-y-auto flex-1 p-2">
                         {['Audio', 'Video', 'Luci', 'Strutture', 'Cavi', 'Rete', 'Accessori', 'Altro'].map(cat => {
                             const items = materialByCategory[cat];
@@ -1112,52 +673,17 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
                             return (
                                 <div key={cat} className="mb-4 last:mb-0">
                                     <div className="bg-glr-800 px-3 py-1.5 flex items-center gap-2 text-xs font-bold text-glr-accent uppercase tracking-wider rounded-t-lg border-b border-glr-700">{getCategoryIcon(cat)} {cat}</div>
-                                    <table className="w-full text-left text-sm bg-glr-800/20">
-                                        <tbody className="divide-y divide-glr-800/50">
-                                            {items.map((item) => (
-                                                <tr key={item.id} className="hover:bg-glr-800/50 group">
-                                                    <td className="pl-3 py-2 font-medium text-white w-1/3">
-                                                        {item.name}
-                                                        <div className="text-[10px] text-gray-500">{item.category} {item.type ? `• ${item.type}` : ''} {item.isExternal && <span className="text-orange-400 ml-1">(Ext)</span>}</div>
-                                                    </td>
-                                                    <td className="py-2 w-1/3">
-                                                        <input type="text" value={item.notes || ''} onChange={e => updateItemNotes(item.id, e.target.value)} className="bg-transparent border-b border-transparent hover:border-gray-600 text-xs text-gray-300 w-full focus:border-glr-accent focus:outline-none" placeholder="Note..."/>
-                                                    </td>
-                                                    <td className="py-2 text-right pr-2 w-24">
-                                                        <div className="flex items-center justify-end gap-1">
-                                                            {canEdit && <button onClick={() => updateItemQuantity(item.id, -1)} className="p-0.5 hover:bg-glr-700 rounded text-gray-500"><Minus size={12}/></button>}
-                                                            <span className="font-bold text-glr-accent w-6 text-center">{item.quantity}</span>
-                                                            {canEdit && <button onClick={() => updateItemQuantity(item.id, 1)} className="p-0.5 hover:bg-glr-700 rounded text-gray-500"><Plus size={12}/></button>}
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-2 text-right w-8">{canEdit && <button onClick={() => setActiveJob({...activeJob, materialList: activeJob.materialList.filter(m => m.id !== item.id)})} className="text-gray-600 hover:text-red-400"><X size={14}/></button>}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                    <table className="w-full text-left text-sm bg-glr-800/20"><tbody className="divide-y divide-glr-800/50">{items.map((item) => (<tr key={item.id} className="hover:bg-glr-800/50 group"><td className="pl-3 py-2 font-medium text-white w-1/3">{item.name}<div className="text-[10px] text-gray-500">{item.category} {item.type ? `• ${item.type}` : ''} {item.isExternal && <span className="text-orange-400 ml-1">(Ext)</span>}</div></td><td className="py-2 w-1/3"><input type="text" value={item.notes || ''} onChange={e => updateItemNotes(item.id, e.target.value)} className="bg-transparent border-b border-transparent hover:border-gray-600 text-xs text-gray-300 w-full focus:border-glr-accent focus:outline-none" placeholder="Note..."/></td><td className="py-2 text-right pr-2 w-24"><div className="flex items-center justify-end gap-1">{canEdit && <button onClick={() => updateItemQuantity(item.id, -1)} className="p-0.5 hover:bg-glr-700 rounded text-gray-500"><Minus size={12}/></button>}<span className="font-bold text-glr-accent w-6 text-center">{item.quantity}</span>{canEdit && <button onClick={() => updateItemQuantity(item.id, 1)} className="p-0.5 hover:bg-glr-700 rounded text-gray-500"><Plus size={12}/></button>}</div></td><td className="py-2 text-right w-8">{canEdit && <button onClick={() => setActiveJob({...activeJob, materialList: activeJob.materialList.filter(m => m.id !== item.id)})} className="text-gray-600 hover:text-red-400"><X size={14}/></button>}</td></tr>))}</tbody></table>
                                 </div>
                             );
                         })}
                         </div>
                     </div>
-
-                    {/* IMPORT KIT MODAL */}
                     {isImportKitModalOpen && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 no-print">
                             <div className="bg-glr-800 rounded-xl border border-glr-600 w-full max-w-md shadow-2xl animate-fade-in">
-                                <div className="p-4 border-b border-glr-700 flex justify-between items-center">
-                                    <h3 className="text-lg font-bold text-white">Importa Kit Standard</h3>
-                                    <button onClick={() => setIsImportKitModalOpen(false)} className="text-gray-400 hover:text-white"><X size={24}/></button>
-                                </div>
-                                <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
-                                    {standardLists.length === 0 && <p className="text-gray-500 italic text-center">Nessun kit salvato.</p>}
-                                    {standardLists.map(list => (
-                                        <button key={list.id} onClick={() => handleImportKit(list)} className="w-full text-left bg-glr-900 border border-glr-700 p-3 rounded hover:border-glr-accent transition-colors">
-                                            <h4 className="font-bold text-white">{list.name}</h4>
-                                            <p className="text-xs text-gray-400">{list.items.length} articoli</p>
-                                        </button>
-                                    ))}
-                                </div>
+                                <div className="p-4 border-b border-glr-700 flex justify-between items-center"><h3 className="text-lg font-bold text-white">Importa Kit Standard</h3><button onClick={() => setIsImportKitModalOpen(false)} className="text-gray-400 hover:text-white"><X size={24}/></button></div>
+                                <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">{standardLists.length === 0 && <p className="text-gray-500 italic text-center">Nessun kit salvato.</p>}{standardLists.map(list => (<button key={list.id} onClick={() => handleImportKit(list)} className="w-full text-left bg-glr-900 border border-glr-700 p-3 rounded hover:border-glr-accent transition-colors"><h4 className="font-bold text-white">{list.name}</h4><p className="text-xs text-gray-400">{list.items.length} articoli</p></button>))}</div>
                             </div>
                         </div>
                     )}
@@ -1166,198 +692,18 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
             
             {activeTab === 'CREW' && (
                 <div className="space-y-6">
+                    {/* ... (Existing Crew Assignment Code) ... */}
                     <h3 className="text-glr-accent font-semibold uppercase text-sm tracking-wider flex items-center gap-2"><UserPlus size={16}/> Assegnazione Tecnici per Fase</h3>
                     <p className="text-gray-400 text-xs">Assegna i tecnici alle specifiche fasi operative dell'evento. I tecnici selezionati appariranno nel planning globale.</p>
-                    
-                    {activeJob.phases.length === 0 && (
-                        <div className="bg-red-900/20 border border-red-800 rounded p-4 text-center">
-                            <p className="text-red-300 text-sm font-bold mb-2">Nessuna Fase Operativa definita</p>
-                            <p className="text-gray-400 text-xs mb-3">Devi prima creare le fasi (es. Montaggio, Evento) nella sezione "Fasi & Logistica" per poter assegnare la crew.</p>
-                            <button onClick={() => setActiveTab('PHASES')} className="text-white bg-glr-700 px-3 py-1 rounded text-xs hover:bg-glr-600">Vai a Fasi</button>
-                        </div>
-                    )}
-
-                    <div className="grid grid-cols-1 gap-6">
-                        {activeJob.phases.map(phase => (
-                            <div key={phase.id} className="bg-glr-800 border border-glr-700 rounded-lg overflow-hidden">
-                                <div className="bg-glr-900/50 p-3 border-b border-glr-700 flex justify-between items-center">
-                                    <div className="flex items-center gap-2">
-                                        <div className="bg-glr-700 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">{activeJob.phases.indexOf(phase) + 1}</div>
-                                        <h4 className="font-bold text-white">{phase.name}</h4>
-                                    </div>
-                                    <div className="text-xs text-gray-400 flex items-center gap-2">
-                                        <Calendar size={12}/>
-                                        {new Date(phase.start).toLocaleDateString()} {new Date(phase.start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {new Date(phase.end).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                    </div>
-                                </div>
-                                <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                                    {crew.map(c => {
-                                        const isAssigned = (phase.assignedCrew || []).includes(c.id);
-                                        return (
-                                            <button 
-                                                key={c.id} 
-                                                onClick={() => canEdit && toggleCrewInPhase(phase.id, c.id)} 
-                                                disabled={!canEdit} 
-                                                className={`p-4 h-24 rounded-lg border text-left transition-all relative flex flex-col justify-between shadow-md hover:shadow-lg hover:scale-[1.02] ${isAssigned ? 'bg-green-600/20 border-green-500' : 'bg-glr-900 border-glr-700 hover:border-gray-500'}`}
-                                            >
-                                                <div className="flex justify-between w-full">
-                                                     <div className="w-8 h-8 rounded-full bg-glr-800 flex items-center justify-center text-sm font-bold text-gray-300 border border-glr-600">
-                                                         {c.name.charAt(0)}
-                                                     </div>
-                                                     {isAssigned && <div className="bg-green-500 text-white rounded-full p-0.5"><Check size={14}/></div>}
-                                                </div>
-                                                <div>
-                                                    <span className={`block font-bold text-sm ${isAssigned ? 'text-white' : 'text-gray-400'}`}>{c.name}</span>
-                                                    <span className="text-[10px] text-gray-500 block truncate">{c.roles[0]}</span>
-                                                </div>
-                                            </button>
-                                        )
-                                    })}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                    {activeJob.phases.length === 0 && (<div className="bg-red-900/20 border border-red-800 rounded p-4 text-center"><p className="text-red-300 text-sm font-bold mb-2">Nessuna Fase Operativa definita</p><p className="text-gray-400 text-xs mb-3">Devi prima creare le fasi (es. Montaggio, Evento) nella sezione "Fasi & Logistica" per poter assegnare la crew.</p><button onClick={() => setActiveTab('PHASES')} className="text-white bg-glr-700 px-3 py-1 rounded text-xs hover:bg-glr-600">Vai a Fasi</button></div>)}
+                    <div className="grid grid-cols-1 gap-6">{activeJob.phases.map(phase => (<div key={phase.id} className="bg-glr-800 border border-glr-700 rounded-lg overflow-hidden"><div className="bg-glr-900/50 p-3 border-b border-glr-700 flex justify-between items-center"><div className="flex items-center gap-2"><div className="bg-glr-700 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">{activeJob.phases.indexOf(phase) + 1}</div><h4 className="font-bold text-white">{phase.name}</h4></div><div className="text-xs text-gray-400 flex items-center gap-2"><Calendar size={12}/>{new Date(phase.start).toLocaleDateString()} {new Date(phase.start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {new Date(phase.end).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div></div><div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">{crew.map(c => { const isAssigned = (phase.assignedCrew || []).includes(c.id); return (<button key={c.id} onClick={() => canEdit && toggleCrewInPhase(phase.id, c.id)} disabled={!canEdit} className={`p-4 h-24 rounded-lg border text-left transition-all relative flex flex-col justify-between shadow-md hover:shadow-lg hover:scale-[1.02] ${isAssigned ? 'bg-green-600/20 border-green-500' : 'bg-glr-900 border-glr-700 hover:border-gray-500'}`}><div className="flex justify-between w-full"><div className="w-8 h-8 rounded-full bg-glr-800 flex items-center justify-center text-sm font-bold text-gray-300 border border-glr-600">{c.name.charAt(0)}</div>{isAssigned && <div className="bg-green-500 text-white rounded-full p-0.5"><Check size={14}/></div>}</div><div><span className={`block font-bold text-sm ${isAssigned ? 'text-white' : 'text-gray-400'}`}>{c.name}</span><span className="text-[10px] text-gray-500 block truncate">{c.roles[0]}</span></div></button>)})}</div></div>))}</div>
                 </div>
             )}
 
             {activeTab === 'BUDGET' && showBudget && (
                 <div className="space-y-8 animate-fade-in h-full flex flex-col">
-                    {/* TOP: REVENUE & SUMMARY */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
-                         {/* INVOICE INPUT */}
-                         <div className="bg-glr-900 p-5 rounded-xl border border-glr-700 shadow-md">
-                            <h4 className="text-gray-400 text-xs uppercase font-bold mb-2 flex items-center gap-2"><Receipt size={14}/> Totale Fattura (Revenue)</h4>
-                            <div className="flex items-center gap-2">
-                                <Euro size={20} className="text-green-500"/>
-                                <input 
-                                    disabled={!canEdit}
-                                    type="number" 
-                                    step="0.01"
-                                    value={activeJob.invoiceAmount || ''} 
-                                    onChange={e => setActiveJob({...activeJob, invoiceAmount: parseFloat(e.target.value)})}
-                                    placeholder="0.00"
-                                    className="w-full bg-transparent border-b border-glr-700 text-3xl font-bold text-white focus:border-green-500 outline-none"
-                                />
-                            </div>
-                         </div>
-
-                         {/* TOTAL COSTS */}
-                         <div className="bg-glr-900 p-5 rounded-xl border border-glr-700 shadow-md">
-                             <h4 className="text-gray-400 text-xs uppercase font-bold mb-2 flex items-center gap-2"><Calculator size={14}/> Totale Costi</h4>
-                             <div className="flex items-center gap-2">
-                                 <Euro size={20} className="text-red-400"/>
-                                 <span className="text-3xl font-bold text-white">{budget.totalCosts.toFixed(2)}</span>
-                             </div>
-                         </div>
-
-                         {/* MARGIN */}
-                         <div className={`p-5 rounded-xl border shadow-md flex flex-col justify-center ${budget.margin >= 0 ? 'bg-green-900/20 border-green-800' : 'bg-red-900/20 border-red-800'}`}>
-                             <h4 className={`text-xs uppercase font-bold mb-1 flex items-center gap-2 ${budget.margin >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                 {budget.margin >= 0 ? <TrendingUp size={16}/> : <TrendingDown size={16}/>} Margine Utile
-                             </h4>
-                             <div className="flex items-center gap-2">
-                                 <Euro size={24} className={budget.margin >= 0 ? 'text-green-500' : 'text-red-500'}/>
-                                 <span className={`text-4xl font-bold ${budget.margin >= 0 ? 'text-green-400' : 'text-red-400'}`}>{budget.margin.toFixed(2)}</span>
-                             </div>
-                         </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 overflow-hidden">
-                        {/* LEFT: COSTS BREAKDOWN */}
-                        <div className="bg-glr-900/50 border border-glr-700 rounded-xl overflow-hidden flex flex-col">
-                            <div className="p-4 border-b border-glr-700 bg-glr-800">
-                                <h4 className="font-bold text-white flex items-center gap-2"><Landmark size={18}/> Dettaglio Costi</h4>
-                            </div>
-                            <div className="p-4 space-y-3 flex-1 overflow-y-auto">
-                                <div className="flex justify-between p-3 bg-glr-800/50 rounded border border-glr-700/50">
-                                    <span className="text-gray-300 text-sm">Personale Esterno (Freelance)</span>
-                                    <span className="text-white font-mono font-bold flex items-center gap-1"><Euro size={12}/> {budget.freelance.toFixed(2)}</span>
-                                </div>
-                                <div className="flex justify-between p-3 bg-glr-800/50 rounded border border-glr-700/50">
-                                    <span className="text-gray-300 text-sm">Diarie Trasferta (Interni)</span>
-                                    <span className="text-white font-mono font-bold flex items-center gap-1"><Euro size={12}/> {budget.internalTravel.toFixed(2)}</span>
-                                </div>
-                                <div className="flex justify-between p-3 bg-glr-800/50 rounded border border-glr-700/50">
-                                    <span className="text-gray-300 text-sm">Noleggi Materiale (Esterno)</span>
-                                    <span className="text-white font-mono font-bold flex items-center gap-1"><Euro size={12}/> {budget.materials.toFixed(2)}</span>
-                                </div>
-                                <div className="flex justify-between p-3 bg-glr-800/50 rounded border border-glr-700/50">
-                                    <span className="text-gray-300 text-sm">Logistica & Mezzi (Noleggi)</span>
-                                    <span className="text-white font-mono font-bold flex items-center gap-1"><Euro size={12}/> {budget.vehicles.toFixed(2)}</span>
-                                </div>
-                                
-                                {/* ZTL Automated */}
-                                {budget.ztl > 0 && (
-                                    <div className="flex justify-between p-3 bg-red-900/10 rounded border border-red-900/30">
-                                        <span className="text-red-300 text-sm flex items-center gap-2"><AlertTriangle size={14}/> Multa ZTL (Automated)</span>
-                                        <span className="text-red-300 font-mono font-bold flex items-center gap-1"><Euro size={12}/> {budget.ztl.toFixed(2)}</span>
-                                    </div>
-                                )}
-
-                                {/* Extra Costs Section */}
-                                <div className="border-t border-glr-700 pt-3 mt-2">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <h5 className="text-xs font-bold text-glr-accent uppercase">Oneri Accessori</h5>
-                                    </div>
-                                    <div className="space-y-2 mb-3">
-                                        {(activeJob.extraCosts || []).map(extra => (
-                                            <div key={extra.id} className="flex justify-between items-center text-sm pl-2 border-l-2 border-glr-700">
-                                                <span className="text-gray-400">{extra.description}</span>
-                                                <div className="flex items-center gap-3">
-                                                    <span className="text-white font-mono"><Euro size={10} className="inline"/> {extra.amount.toFixed(2)}</span>
-                                                    {canEdit && <button onClick={() => removeExtraCost(extra.id)} className="text-gray-600 hover:text-red-400"><Trash2 size={12}/></button>}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    {canEdit && (
-                                        <div className="flex gap-2">
-                                            <input type="text" value={newExtraDesc} onChange={e => setNewExtraDesc(e.target.value)} placeholder="Descrizione onere..." className="flex-1 bg-glr-900 border border-glr-600 rounded p-1.5 text-xs text-white"/>
-                                            <input type="number" value={newExtraAmount} onChange={e => setNewExtraAmount(e.target.value)} placeholder="€" className="w-20 bg-glr-900 border border-glr-600 rounded p-1.5 text-xs text-white"/>
-                                            <button onClick={handleAddExtraCost} disabled={!newExtraAmount} className="bg-glr-700 hover:bg-white hover:text-glr-900 text-white rounded px-2"><Plus size={16}/></button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* RIGHT: EXPENSES TABLE */}
-                        <div className="bg-glr-900/50 border border-glr-700 rounded-xl overflow-hidden flex flex-col">
-                            <div className="p-4 border-b border-glr-700 bg-glr-800 flex justify-between items-center">
-                                <h4 className="font-bold text-white flex items-center gap-2"><Receipt size={18}/> Rimborsi Spese Crew</h4>
-                                <span className="bg-glr-900 text-gray-400 text-xs px-2 py-1 rounded">Approvati</span>
-                            </div>
-                            <div className="flex-1 overflow-y-auto">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="bg-glr-900 text-gray-500 text-xs uppercase sticky top-0">
-                                        <tr>
-                                            <th className="p-3">Data</th>
-                                            <th className="p-3">Tecnico</th>
-                                            <th className="p-3">Descrizione</th>
-                                            <th className="p-3 text-right">Importo</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-glr-700/50">
-                                        {jobExpensesList.map((exp: any) => (
-                                            <tr key={exp.id} className="hover:bg-glr-800/30">
-                                                <td className="p-3 text-gray-400 text-xs">{new Date(exp.date).toLocaleDateString()}</td>
-                                                <td className="p-3 font-bold text-white text-xs">{exp.crewName}</td>
-                                                <td className="p-3 text-gray-300 text-xs">{exp.description}</td>
-                                                <td className="p-3 text-right font-mono text-white text-xs flex justify-end items-center gap-1"><Euro size={10}/> {exp.amount.toFixed(2)}</td>
-                                            </tr>
-                                        ))}
-                                        {jobExpensesList.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-gray-500 italic text-xs">Nessuna spesa approvata per questo lavoro.</td></tr>}
-                                    </tbody>
-                                    <tfoot className="bg-glr-900 border-t border-glr-700">
-                                        <tr>
-                                            <td colSpan={3} className="p-3 text-right font-bold text-gray-400 uppercase text-xs">Totale Rimborsi</td>
-                                            <td className="p-3 text-right font-bold text-white font-mono flex justify-end items-center gap-1"><Euro size={12}/> {budget.expenses.toFixed(2)}</td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
+                    {/* ... (Existing Budget Code) ... */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0"><div className="bg-glr-900 p-5 rounded-xl border border-glr-700 shadow-md"><h4 className="text-gray-400 text-xs uppercase font-bold mb-2 flex items-center gap-2"><Receipt size={14}/> Totale Fattura (Revenue)</h4><div className="flex items-center gap-2"><Euro size={20} className="text-green-500"/><input disabled={!canEdit} type="number" step="0.01" value={activeJob.invoiceAmount || ''} onChange={e => setActiveJob({...activeJob, invoiceAmount: parseFloat(e.target.value)})} placeholder="0.00" className="w-full bg-transparent border-b border-glr-700 text-3xl font-bold text-white focus:border-green-500 outline-none"/></div></div><div className="bg-glr-900 p-5 rounded-xl border border-glr-700 shadow-md"><h4 className="text-gray-400 text-xs uppercase font-bold mb-2 flex items-center gap-2"><Calculator size={14}/> Totale Costi</h4><div className="flex items-center gap-2"><Euro size={20} className="text-red-400"/><span className="text-3xl font-bold text-white">{budget.totalCosts.toFixed(2)}</span></div></div><div className={`p-5 rounded-xl border shadow-md flex flex-col justify-center ${budget.margin >= 0 ? 'bg-green-900/20 border-green-800' : 'bg-red-900/20 border-red-800'}`}><h4 className={`text-xs uppercase font-bold mb-1 flex items-center gap-2 ${budget.margin >= 0 ? 'text-green-400' : 'text-red-400'}`}>{budget.margin >= 0 ? <TrendingUp size={16}/> : <TrendingDown size={16}/>} Margine Utile</h4><div className="flex items-center gap-2"><Euro size={24} className={budget.margin >= 0 ? 'text-green-500' : 'text-red-500'}/><span className={`text-4xl font-bold ${budget.margin >= 0 ? 'text-green-400' : 'text-red-400'}`}>{budget.margin.toFixed(2)}</span></div></div></div><div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 overflow-hidden"><div className="bg-glr-900/50 border border-glr-700 rounded-xl overflow-hidden flex flex-col"><div className="p-4 border-b border-glr-700 bg-glr-800"><h4 className="font-bold text-white flex items-center gap-2"><Landmark size={18}/> Dettaglio Costi</h4></div><div className="p-4 space-y-3 flex-1 overflow-y-auto"><div className="flex justify-between p-3 bg-glr-800/50 rounded border border-glr-700/50"><span className="text-gray-300 text-sm">Personale Esterno (Freelance)</span><span className="text-white font-mono font-bold flex items-center gap-1"><Euro size={12}/> {budget.freelance.toFixed(2)}</span></div><div className="flex justify-between p-3 bg-glr-800/50 rounded border border-glr-700/50"><span className="text-gray-300 text-sm">Diarie Trasferta (Interni)</span><span className="text-white font-mono font-bold flex items-center gap-1"><Euro size={12}/> {budget.internalTravel.toFixed(2)}</span></div><div className="flex justify-between p-3 bg-glr-800/50 rounded border border-glr-700/50"><span className="text-gray-300 text-sm">Noleggi Materiale (Esterno)</span><span className="text-white font-mono font-bold flex items-center gap-1"><Euro size={12}/> {budget.materials.toFixed(2)}</span></div><div className="flex justify-between p-3 bg-glr-800/50 rounded border border-glr-700/50"><span className="text-gray-300 text-sm">Logistica & Mezzi (Noleggi)</span><span className="text-white font-mono font-bold flex items-center gap-1"><Euro size={12}/> {budget.vehicles.toFixed(2)}</span></div>{budget.ztl > 0 && (<div className="flex justify-between p-3 bg-red-900/10 rounded border border-red-900/30"><span className="text-red-300 text-sm flex items-center gap-2"><AlertTriangle size={14}/> Multa ZTL (Automated)</span><span className="text-red-300 font-mono font-bold flex items-center gap-1"><Euro size={12}/> {budget.ztl.toFixed(2)}</span></div>)}<div className="border-t border-glr-700 pt-3 mt-2"><div className="flex justify-between items-center mb-2"><h5 className="text-xs font-bold text-glr-accent uppercase">Oneri Accessori</h5></div><div className="space-y-2 mb-3">{(activeJob.extraCosts || []).map(extra => (<div key={extra.id} className="flex justify-between items-center text-sm pl-2 border-l-2 border-glr-700"><span className="text-gray-400">{extra.description}</span><div className="flex items-center gap-3"><span className="text-white font-mono"><Euro size={10} className="inline"/> {extra.amount.toFixed(2)}</span>{canEdit && <button onClick={() => removeExtraCost(extra.id)} className="text-gray-600 hover:text-red-400"><Trash2 size={12}/></button>}</div></div>))}</div>{canEdit && (<div className="flex gap-2"><input type="text" value={newExtraDesc} onChange={e => setNewExtraDesc(e.target.value)} placeholder="Descrizione onere..." className="flex-1 bg-glr-900 border border-glr-600 rounded p-1.5 text-xs text-white"/><input type="number" value={newExtraAmount} onChange={e => setNewExtraAmount(e.target.value)} placeholder="€" className="w-20 bg-glr-900 border border-glr-600 rounded p-1.5 text-xs text-white"/><button onClick={handleAddExtraCost} disabled={!newExtraAmount} className="bg-glr-700 hover:bg-white hover:text-glr-900 text-white rounded px-2"><Plus size={16}/></button></div>)}</div></div></div><div className="bg-glr-900/50 border border-glr-700 rounded-xl overflow-hidden flex flex-col"><div className="p-4 border-b border-glr-700 bg-glr-800 flex justify-between items-center"><h4 className="font-bold text-white flex items-center gap-2"><Receipt size={18}/> Rimborsi Spese Crew</h4><span className="bg-glr-900 text-gray-400 text-xs px-2 py-1 rounded">Approvati</span></div><div className="flex-1 overflow-y-auto"><table className="w-full text-left text-sm"><thead className="bg-glr-900 text-gray-500 text-xs uppercase sticky top-0"><tr><th className="p-3">Data</th><th className="p-3">Tecnico</th><th className="p-3">Descrizione</th><th className="p-3 text-right">Importo</th></tr></thead><tbody className="divide-y divide-glr-700/50">{jobExpensesList.map((exp: any) => (<tr key={exp.id} className="hover:bg-glr-800/30"><td className="p-3 text-gray-400 text-xs">{new Date(exp.date).toLocaleDateString()}</td><td className="p-3 font-bold text-white text-xs">{exp.crewName}</td><td className="p-3 text-gray-300 text-xs">{exp.description}</td><td className="p-3 text-right font-mono text-white text-xs flex justify-end items-center gap-1"><Euro size={10}/> {exp.amount.toFixed(2)}</td></tr>))}{jobExpensesList.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-gray-500 italic text-xs">Nessuna spesa approvata per questo lavoro.</td></tr>}</tbody><tfoot className="bg-glr-900 border-t border-glr-700"><tr><td colSpan={3} className="p-3 text-right font-bold text-gray-400 uppercase text-xs">Totale Rimborsi</td><td className="p-3 text-right font-bold text-white font-mono flex justify-end items-center gap-1"><Euro size={12}/> {budget.expenses.toFixed(2)}</td></tr></tfoot></table></div></div></div>
                 </div>
             )}
 
@@ -1404,7 +750,60 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
                             </div>
                         </div>
 
-                        {/* SECTION 2: CONTACTS */}
+                        {/* SECTION 2: LOGISTICS & ACCESS (DETAILED) */}
+                        <div className="mb-6 border border-black p-3">
+                            <h4 className="font-bold uppercase bg-gray-200 border-b border-black p-1 text-xs mb-2 text-black">Logistica & Accessi</h4>
+                            <div className="grid grid-cols-2 gap-4 text-xs">
+                                <div>
+                                    <p><strong>Orari Accesso:</strong> {activeLocationData?.accessHours || 'N/D'}</p>
+                                    <p><strong>Piano Scarico:</strong> {activeLocationData?.logistics.loadFloor || 'N/D'}</p>
+                                    <p><strong>Parcheggio:</strong> {activeLocationData?.logistics.hasParking ? 'Disponibile' : 'Non Disponibile'}</p>
+                                    <p><strong>ZTL:</strong> {activeLocationData?.isZtl ? 'ATTIVA (Comunicare targhe)' : 'NO'}</p>
+                                </div>
+                                <div>
+                                    <p><strong>Corrente:</strong> {activeLocationData?.power.hasIndustrial ? `Industriale (${activeLocationData.power.industrialSockets.join(', ')})` : 'Civile'}</p>
+                                    <p><strong>Distanza Quadro:</strong> {activeLocationData?.power.distanceFromPanel ? `${activeLocationData.power.distanceFromPanel} mt` : 'N/D'}</p>
+                                    {activeLocationData?.power.requiresGenerator && <p className="font-bold">⚠️ RICHIESTO GENERATORE</p>}
+                                </div>
+                            </div>
+                            
+                            {/* Porterage Highlight */}
+                            {activeJob.hasPorterage && activeJob.porterageAgency && (
+                                <div className="mt-3 pt-2 border-t border-black border-dashed">
+                                    <p className="font-bold uppercase text-black">Servizio Facchinaggio</p>
+                                    <div className="flex justify-between items-center bg-gray-100 p-2 mt-1 border border-black">
+                                        <span><strong>Fornitore:</strong> {activeJob.porterageAgency}</span>
+                                        <span className="text-sm font-bold">CONVOCAZIONE: {activeJob.porterageTime ? new Date(activeJob.porterageTime).toLocaleString([], {weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : 'TBD'}</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* SECTION 3: CREW LIST (NEW) */}
+                        <div className="mb-6">
+                            <h4 className="font-bold uppercase border-b-2 border-black mb-2 text-black">Team Tecnico & Crew</h4>
+                            <table className="w-full border-collapse border border-black text-xs">
+                                <thead className="bg-gray-200 text-black">
+                                    <tr>
+                                        <th className="border border-black p-1 text-left w-1/4">Ruolo</th>
+                                        <th className="border border-black p-1 text-left w-1/2">Nome Cognome</th>
+                                        <th className="border border-black p-1 text-left w-1/4">Telefono</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="text-black">
+                                    {assignedCrewObjects.length === 0 && <tr><td colSpan={3} className="p-2 text-center italic">Nessuna crew assegnata</td></tr>}
+                                    {assignedCrewObjects.map(c => (
+                                        <tr key={c.id}>
+                                            <td className="border border-black p-1 font-bold">{c.roles[0]}</td>
+                                            <td className="border border-black p-1">{c.name}</td>
+                                            <td className="border border-black p-1">{c.phone}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* SECTION 4: CONTACTS */}
                         <div className="mb-6">
                             <h4 className="font-bold uppercase border-b-2 border-black mb-2 text-black">Contatti Utili</h4>
                             <table className="w-full border-collapse border border-black text-xs">
@@ -1445,20 +844,11 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
                                             <td className="border border-black p-1">-</td>
                                         </tr>
                                     )}
-                                    {activeJob.hasPorterage && activeJob.porterageAgency && (
-                                        <tr>
-                                            <td className="border border-black p-1 font-bold">Facchinaggio</td>
-                                            <td className="border border-black p-1">{activeJob.porterageAgency}</td>
-                                            <td className="border border-black p-1 text-center font-bold" colSpan={2}>
-                                                {activeJob.porterageTime ? new Date(activeJob.porterageTime).toLocaleString([], {weekday:'short', hour:'2-digit', minute:'2-digit'}) : ''}
-                                            </td>
-                                        </tr>
-                                    )}
                                 </tbody>
                             </table>
                         </div>
 
-                        {/* SECTION 3: LOGISTICS & OUTFIT */}
+                        {/* SECTION 5: LOGISTICS & OUTFIT */}
                         <div className="grid grid-cols-2 gap-8 mb-6">
                             <div>
                                 <h4 className="font-bold uppercase border-b-2 border-black mb-2 text-black">Logistica & Hotel</h4>
@@ -1481,7 +871,7 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
                             </div>
                         </div>
 
-                        {/* SECTION 4: SCHEDULE */}
+                        {/* SECTION 6: SCHEDULE */}
                         <div className="mb-8">
                             <h4 className="font-bold uppercase border-b-2 border-black mb-2 text-black">Programma Orario (Phases)</h4>
                             <table className="w-full text-sm text-left border-collapse border border-black">
@@ -1500,7 +890,7 @@ export const Jobs: React.FC<JobsProps> = ({ jobs, crew, locations, inventory, st
                             </table>
                         </div>
                         
-                         {/* SECTION 5: NOTES */}
+                         {/* SECTION 7: NOTES */}
                         {activeJob.description && (
                              <div className="mb-8 border border-black p-2 bg-gray-100">
                                  <h4 className="font-bold uppercase text-xs mb-1 text-black">Note di Produzione</h4>

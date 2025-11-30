@@ -1,6 +1,6 @@
 
 
-import { Job, CrewMember, Location, InventoryItem, AppSettings, Notification, JobStatus, CrewType, CrewRole, ApprovalStatus, VehicleType, StandardMaterialList, CostCenter, F24Payment } from '../types';
+import { Job, CrewMember, Location, InventoryItem, AppSettings, Notification, JobStatus, CrewType, CrewRole, ApprovalStatus, VehicleType, StandardMaterialList, CostCenter, F24Payment, Rental, RentalStatus } from '../types';
 
 // --- MOCK DATA FOR DEMO MODE ---
 
@@ -17,20 +17,51 @@ let MOCK_SETTINGS: AppSettings = {
     googleCalendarClientId: '',
     googleCalendarClientSecret: '',
     googleCalendarId: '',
+    crewRoles: ['Project Manager', 'Audio Engineer', 'Light Operator', 'Video Tech', 'Rigger', 'Stage Hand'],
     permissions: {
         MANAGER: {
-            canViewBudget: false,
+            // View Permissions
+            canViewDashboard: true,
+            canViewJobs: true,
+            canViewKits: true,
+            canViewRentals: true,
+            canViewInventory: true,
+            canViewLocations: true,
+            canViewCrew: true,
+            canViewExpenses: true,
+            canViewCompany: false,
+            
+            // Action Permissions
+            canManageJobs: true,
+            canDeleteJobs: false,
+            canViewBudget: true,
             canManageCrew: true,
-            canManageLocations: true,
+            canManageExpenses: true,
             canManageInventory: true,
-            canDeleteJobs: false
+            canManageLocations: true,
+            canManageRentals: true
         },
         TECH: {
+            // View Permissions
+            canViewDashboard: true,
+            canViewJobs: true,
+            canViewKits: true,
+            canViewRentals: true,
+            canViewInventory: true,
+            canViewLocations: true,
+            canViewCrew: true,
+            canViewExpenses: true,
+            canViewCompany: false,
+
+            // Action Permissions
+            canManageJobs: false,
+            canDeleteJobs: false,
             canViewBudget: false,
             canManageCrew: false,
-            canManageLocations: true,
+            canManageExpenses: false,
             canManageInventory: false,
-            canDeleteJobs: false
+            canManageLocations: false,
+            canManageRentals: false
         }
     }
 };
@@ -87,6 +118,17 @@ let MOCK_JOBS: Job[] = [
         ],
         assignedCrew: ['2', '3'], notes: '',
         invoiceAmount: 5000, extraCosts: []
+    }
+];
+
+let MOCK_RENTALS: Rental[] = [
+    {
+        id: 'r1', status: RentalStatus.CONFIRMED, client: 'Band Rock', contactName: 'Mario', contactPhone: '333000000',
+        pickupDate: new Date().toISOString().split('T')[0], returnDate: new Date(Date.now() + 172800000).toISOString().split('T')[0],
+        deliveryMethod: 'RITIRO',
+        items: [
+            { id: 'ri1', inventoryId: '1', name: 'Shure SM58', category: 'Audio', type: 'Microfono', quantity: 2, isExternal: false }
+        ]
     }
 ];
 
@@ -148,6 +190,11 @@ export const api = {
   createInventoryItem: async (item: InventoryItem) => { await delay(300); const n = {...item, id: Date.now().toString()}; MOCK_INVENTORY.push(n); return n; },
   updateInventoryItem: async (item: InventoryItem) => { await delay(300); MOCK_INVENTORY = MOCK_INVENTORY.map(i => i.id === item.id ? item : i); return item; },
   deleteInventoryItem: async (id: string) => { await delay(300); MOCK_INVENTORY = MOCK_INVENTORY.filter(i => i.id !== id); return true; },
+
+  getRentals: async () => { await delay(300); return [...MOCK_RENTALS]; },
+  createRental: async (rental: Rental) => { await delay(300); const n = {...rental, id: Date.now().toString()}; MOCK_RENTALS.push(n); return n; },
+  updateRental: async (rental: Rental) => { await delay(300); MOCK_RENTALS = MOCK_RENTALS.map(r => r.id === rental.id ? rental : r); return rental; },
+  deleteRental: async (id: string) => { await delay(300); MOCK_RENTALS = MOCK_RENTALS.filter(r => r.id !== id); return true; },
 
   getStandardLists: async () => { await delay(300); return [...MOCK_STANDARD_LISTS]; },
   createStandardList: async (list: StandardMaterialList) => { await delay(300); const n = {...list, id: Date.now().toString()}; MOCK_STANDARD_LISTS.push(n); return n; },

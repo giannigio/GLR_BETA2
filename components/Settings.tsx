@@ -1,7 +1,8 @@
 
+
 import React, { useState } from 'react';
-import { AppSettings } from '../types';
-import { Save, Building2, DollarSign, Calendar, Database, AlertCircle, CheckCircle, Shield, Lock } from 'lucide-react';
+import { AppSettings, RolePermissions } from '../types';
+import { Save, Building2, DollarSign, Calendar, Database, AlertCircle, CheckCircle, Shield, Lock, Briefcase, Plus, Trash2, Tag, Eye, Settings as SettingsIcon } from 'lucide-react';
 
 interface SettingsProps {
   settings: AppSettings;
@@ -12,6 +13,7 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onUpdateSettings }
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
   const [activeTab, setActiveTab] = useState<'COMPANY' | 'ECONOMICS' | 'INTEGRATIONS' | 'SYSTEM' | 'ROLES'>('COMPANY');
   const [statusMsg, setStatusMsg] = useState<{type: 'success'|'error', text: string} | null>(null);
+  const [newRoleName, setNewRoleName] = useState('');
 
   const handleSave = () => {
       try {
@@ -27,7 +29,7 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onUpdateSettings }
       setLocalSettings(prev => ({ ...prev, [field]: value }));
   };
 
-  const updatePermission = (role: 'MANAGER' | 'TECH', perm: keyof AppSettings['permissions']['MANAGER']) => {
+  const updatePermission = (role: 'MANAGER' | 'TECH', perm: keyof RolePermissions) => {
       setLocalSettings(prev => ({
           ...prev,
           permissions: {
@@ -39,6 +41,38 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onUpdateSettings }
           }
       }));
   };
+
+  const addRole = () => {
+      if (!newRoleName.trim()) return;
+      const currentRoles = localSettings.crewRoles || [];
+      if (!currentRoles.includes(newRoleName)) {
+          setLocalSettings(prev => ({
+              ...prev,
+              crewRoles: [...currentRoles, newRoleName]
+          }));
+          setNewRoleName('');
+      }
+  };
+
+  const removeRole = (role: string) => {
+      setLocalSettings(prev => ({
+          ...prev,
+          crewRoles: prev.crewRoles.filter(r => r !== role)
+      }));
+  };
+
+  // Menu items mapping
+  const MENU_SECTIONS: { id: keyof RolePermissions; label: string }[] = [
+      { id: 'canViewDashboard', label: 'Dashboard' },
+      { id: 'canViewJobs', label: 'Schede Lavoro' },
+      { id: 'canViewKits', label: 'Kit & Liste' },
+      { id: 'canViewRentals', label: 'Noleggi' },
+      { id: 'canViewInventory', label: 'Magazzino' },
+      { id: 'canViewLocations', label: 'Locations' },
+      { id: 'canViewCrew', label: 'Crew & Tecnici' },
+      { id: 'canViewExpenses', label: 'Rimborsi' },
+      { id: 'canViewCompany', label: 'Gestione Azienda' },
+  ];
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
@@ -170,61 +204,120 @@ export const Settings: React.FC<SettingsProps> = ({ settings, onUpdateSettings }
                    </div>
                )}
 
-               {/* TAB: ROLES (NEW) */}
+               {/* TAB: ROLES & PERMISSIONS */}
                {activeTab === 'ROLES' && (
-                   <div className="max-w-3xl space-y-6">
-                        <div className="bg-yellow-900/20 border border-yellow-800 p-4 rounded text-sm text-yellow-200 mb-4 flex items-start gap-2">
-                           <Lock size={16} className="mt-0.5 shrink-0"/>
-                           <p>Definisci cosa possono vedere e modificare gli utenti. L'Amministratore ha sempre accesso completo.</p>
+                   <div className="space-y-8">
+                        {/* SECTION 1: CREW ROLES (TITLES) */}
+                        <div className="max-w-4xl">
+                            <h3 className="text-lg font-bold text-white mb-2 border-b border-glr-700 pb-2 flex items-center gap-2">
+                                <Briefcase size={20}/> Gestione Ruoli & Etichette
+                            </h3>
+                            <p className="text-sm text-gray-400 mb-4">Definisci le etichette per i ruoli tecnici (es. Project Manager, Rigger, etc.). Queste opzioni appariranno nelle schede anagrafiche.</p>
+                            
+                            <div className="flex gap-2 mb-4">
+                                <input 
+                                    type="text" 
+                                    value={newRoleName} 
+                                    onChange={e => setNewRoleName(e.target.value)} 
+                                    placeholder="Nuovo Ruolo (es. Stage Manager)" 
+                                    className="bg-glr-900 border border-glr-600 rounded p-2 text-white flex-1"
+                                    onKeyDown={(e) => e.key === 'Enter' && addRole()}
+                                />
+                                <button onClick={addRole} className="bg-glr-700 hover:bg-white hover:text-glr-900 text-white font-bold px-4 py-2 rounded transition-colors flex items-center gap-2">
+                                    <Plus size={18}/> Aggiungi
+                                </button>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                                {(localSettings.crewRoles || []).map((role) => (
+                                    <div key={role} className="flex items-center gap-2 bg-glr-900 border border-glr-700 px-3 py-1.5 rounded-full group">
+                                        <span className="text-sm font-bold text-gray-300">{role}</span>
+                                        <button onClick={() => removeRole(role)} className="text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Trash2 size={14}/>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
 
-                        {localSettings.permissions ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="bg-glr-900 rounded border border-glr-700 p-4">
-                                    <h4 className="text-white font-bold mb-4 flex items-center gap-2"><Shield size={16} className="text-blue-400"/> Manager (Direttore Tecnico)</h4>
-                                    <div className="space-y-3">
-                                        <label className="flex items-center gap-3 cursor-pointer">
-                                            <input type="checkbox" checked={localSettings.permissions.MANAGER.canViewBudget} onChange={() => updatePermission('MANAGER', 'canViewBudget')} className="rounded bg-glr-800 border-glr-600 text-glr-accent"/>
-                                            <span className="text-sm text-gray-300">Visualizza Budget Lavori</span>
-                                        </label>
-                                        <label className="flex items-center gap-3 cursor-pointer">
-                                            <input type="checkbox" checked={localSettings.permissions.MANAGER.canManageCrew} onChange={() => updatePermission('MANAGER', 'canManageCrew')} className="rounded bg-glr-800 border-glr-600 text-glr-accent"/>
-                                            <span className="text-sm text-gray-300">Gestione Completa Crew</span>
-                                        </label>
-                                        <label className="flex items-center gap-3 cursor-pointer">
-                                            <input type="checkbox" checked={localSettings.permissions.MANAGER.canManageInventory} onChange={() => updatePermission('MANAGER', 'canManageInventory')} className="rounded bg-glr-800 border-glr-600 text-glr-accent"/>
-                                            <span className="text-sm text-gray-300">Gestione Inventario</span>
-                                        </label>
-                                        <label className="flex items-center gap-3 cursor-pointer">
-                                            <input type="checkbox" checked={localSettings.permissions.MANAGER.canDeleteJobs} onChange={() => updatePermission('MANAGER', 'canDeleteJobs')} className="rounded bg-glr-800 border-glr-600 text-glr-accent"/>
-                                            <span className="text-sm text-gray-300">Eliminare Schede Lavoro</span>
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <div className="bg-glr-900 rounded border border-glr-700 p-4">
-                                    <h4 className="text-white font-bold mb-4 flex items-center gap-2"><Shield size={16} className="text-gray-400"/> Tecnico (Tech)</h4>
-                                    <div className="space-y-3">
-                                        <label className="flex items-center gap-3 cursor-pointer">
-                                            <input type="checkbox" checked={localSettings.permissions.TECH.canViewBudget} onChange={() => updatePermission('TECH', 'canViewBudget')} className="rounded bg-glr-800 border-glr-600 text-glr-accent"/>
-                                            <span className="text-sm text-gray-300">Visualizza Budget Lavori</span>
-                                        </label>
-                                        <label className="flex items-center gap-3 cursor-pointer">
-                                            <input type="checkbox" checked={localSettings.permissions.TECH.canManageCrew} onChange={() => updatePermission('TECH', 'canManageCrew')} className="rounded bg-glr-800 border-glr-600 text-glr-accent"/>
-                                            <span className="text-sm text-gray-300">Gestione Completa Crew</span>
-                                        </label>
-                                        <label className="flex items-center gap-3 cursor-pointer">
-                                            <input type="checkbox" checked={localSettings.permissions.TECH.canManageLocations} onChange={() => updatePermission('TECH', 'canManageLocations')} className="rounded bg-glr-800 border-glr-600 text-glr-accent"/>
-                                            <span className="text-sm text-gray-300">Gestione Locations</span>
-                                        </label>
-                                        <label className="flex items-center gap-3 cursor-pointer">
-                                            <input type="checkbox" checked={localSettings.permissions.TECH.canManageInventory} onChange={() => updatePermission('TECH', 'canManageInventory')} className="rounded bg-glr-800 border-glr-600 text-glr-accent"/>
-                                            <span className="text-sm text-gray-300">Gestione Inventario</span>
-                                        </label>
-                                    </div>
-                                </div>
+                        {/* SECTION 2: PERMISSIONS MATRIX */}
+                        <div className="max-w-full">
+                             <h3 className="text-lg font-bold text-white mb-2 border-b border-glr-700 pb-2 flex items-center gap-2">
+                                <Lock size={20}/> Matrice Permessi Applicativo
+                            </h3>
+                            <div className="bg-yellow-900/20 border border-yellow-800 p-4 rounded text-sm text-yellow-200 mb-6 flex items-start gap-2">
+                               <Shield size={16} className="mt-0.5 shrink-0"/>
+                               <p>Configura l'accesso alle sezioni del menu e le azioni consentite. L'<b>Amministratore</b> ha sempre accesso completo.</p>
                             </div>
-                        ) : <p className="text-gray-500 italic">Caricamento permessi...</p>}
+
+                            {localSettings.permissions ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    {/* MANAGER PERMISSIONS */}
+                                    <div className="bg-glr-900 rounded border border-glr-700 p-5">
+                                        <h4 className="text-white font-bold mb-4 flex items-center gap-2 pb-2 border-b border-glr-700"><Shield size={16} className="text-blue-400"/> Manager / Direttore Tecnico</h4>
+                                        <div className="space-y-6">
+                                            
+                                            {/* Visibility Toggle */}
+                                            <div>
+                                                <h5 className="text-xs font-bold text-gray-500 uppercase mb-3 flex items-center gap-2"><Eye size={12}/> Visibilità Menu (Sezioni Abilitate)</h5>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    {MENU_SECTIONS.map(item => (
+                                                        <label key={item.id} className={`flex items-center gap-2 cursor-pointer p-2 rounded transition-colors ${localSettings.permissions.MANAGER[item.id] ? 'bg-glr-800' : 'hover:bg-glr-800/50'}`}>
+                                                            <input type="checkbox" checked={localSettings.permissions.MANAGER[item.id]} onChange={() => updatePermission('MANAGER', item.id)} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/>
+                                                            <span className={`text-sm ${localSettings.permissions.MANAGER[item.id] ? 'text-white font-medium' : 'text-gray-500'}`}>{item.label}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Action Permissions */}
+                                            <div>
+                                                <h5 className="text-xs font-bold text-gray-500 uppercase mb-3 flex items-center gap-2"><SettingsIcon size={12}/> Permessi Operativi</h5>
+                                                <div className="space-y-2 pl-2 border-l-2 border-glr-800">
+                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.MANAGER.canManageJobs} onChange={() => updatePermission('MANAGER', 'canManageJobs')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Crea/Modifica Lavori</span></label>
+                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.MANAGER.canDeleteJobs} onChange={() => updatePermission('MANAGER', 'canDeleteJobs')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Elimina Lavori</span></label>
+                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.MANAGER.canViewBudget} onChange={() => updatePermission('MANAGER', 'canViewBudget')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Visualizza Budget Economico</span></label>
+                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.MANAGER.canManageCrew} onChange={() => updatePermission('MANAGER', 'canManageCrew')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Gestione Crew (Anagrafiche)</span></label>
+                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.MANAGER.canManageInventory} onChange={() => updatePermission('MANAGER', 'canManageInventory')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Gestione Magazzino</span></label>
+                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.MANAGER.canManageRentals} onChange={() => updatePermission('MANAGER', 'canManageRentals')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Gestione Noleggi</span></label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* TECH PERMISSIONS */}
+                                    <div className="bg-glr-900 rounded border border-glr-700 p-5">
+                                        <h4 className="text-white font-bold mb-4 flex items-center gap-2 pb-2 border-b border-glr-700"><Shield size={16} className="text-gray-400"/> Tecnico (Tech)</h4>
+                                        <div className="space-y-6">
+                                            
+                                            {/* Visibility Toggle */}
+                                            <div>
+                                                <h5 className="text-xs font-bold text-gray-500 uppercase mb-3 flex items-center gap-2"><Eye size={12}/> Visibilità Menu (Sezioni Abilitate)</h5>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    {MENU_SECTIONS.map(item => (
+                                                        <label key={item.id} className={`flex items-center gap-2 cursor-pointer p-2 rounded transition-colors ${localSettings.permissions.TECH[item.id] ? 'bg-glr-800' : 'hover:bg-glr-800/50'}`}>
+                                                            <input type="checkbox" checked={localSettings.permissions.TECH[item.id]} onChange={() => updatePermission('TECH', item.id)} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/>
+                                                            <span className={`text-sm ${localSettings.permissions.TECH[item.id] ? 'text-white font-medium' : 'text-gray-500'}`}>{item.label}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Action Permissions */}
+                                            <div>
+                                                <h5 className="text-xs font-bold text-gray-500 uppercase mb-3 flex items-center gap-2"><SettingsIcon size={12}/> Permessi Operativi</h5>
+                                                <div className="space-y-2 pl-2 border-l-2 border-glr-800">
+                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.TECH.canManageJobs} onChange={() => updatePermission('TECH', 'canManageJobs')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Crea/Modifica Lavori</span></label>
+                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.TECH.canViewBudget} onChange={() => updatePermission('TECH', 'canViewBudget')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Visualizza Budget Economico</span></label>
+                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.TECH.canManageCrew} onChange={() => updatePermission('TECH', 'canManageCrew')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Gestione Crew</span></label>
+                                                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={localSettings.permissions.TECH.canManageInventory} onChange={() => updatePermission('TECH', 'canManageInventory')} className="rounded bg-glr-950 border-glr-600 text-glr-accent"/><span className="text-xs text-gray-300">Gestione Magazzino</span></label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : <p className="text-gray-500 italic">Caricamento permessi...</p>}
+                        </div>
                    </div>
                )}
 
