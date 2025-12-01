@@ -426,6 +426,7 @@ export interface AppSettings {
     googleCalendarId: string;
     crewRoles?: string[];
     permissions: {
+        ADMIN: RolePermissions;
         MANAGER: RolePermissions;
         TECH: RolePermissions;
     }

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { Jobs } from './components/Jobs';
@@ -31,66 +32,90 @@ const App: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  
+  // Refactored State Management for Loading and Auth
   const [isLoading, setIsLoading] = useState(true);
-
-  // Authentication State
   const [currentUser, setCurrentUser] = useState<{ id: string, name: string; role: SystemRole } | null>(null);
+  const [authChecked, setAuthChecked] = useState(false); // New state to confirm initial auth check is done
 
-  // 1. Check Session on Load
+  // 1. Unified Startup Effect: Check auth, then load data.
   useEffect(() => {
+    const startup = async () => {
+      // First, check for a stored user session
+      let user = null;
       const storedUser = localStorage.getItem('glr_user');
       if (storedUser) {
-          try {
-              setCurrentUser(JSON.parse(storedUser));
-          } catch (e) {
-              localStorage.removeItem('glr_user');
-          }
-      }
-      setIsLoading(false);
-  }, []);
-
-  // 2. Load Data when User is Set
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const loadData = async () => {
-      try {
-        const [fetchedJobs, fetchedCrew, fetchedLocations, fetchedInventory, fetchedStdLists, fetchedRentals, fetchedTasks, fetchedNotifs, fetchedSettings] = await Promise.all([
-          api.getJobs(),
-          api.getCrew(),
-          api.getLocations(),
-          api.getInventory(),
-          api.getStandardLists(),
-          api.getRentals(),
-          api.getTasks(),
-          api.getNotifications(),
-          api.getSettings()
-        ]);
-        setJobs(fetchedJobs);
-        setCrew(fetchedCrew);
-        setLocations(fetchedLocations);
-        setInventory(fetchedInventory);
-        setStandardLists(fetchedStdLists);
-        setRentals(fetchedRentals);
-        setTasks(fetchedTasks);
-        setNotifications(fetchedNotifs);
-        setSettings(fetchedSettings);
-      } catch (error) {
-        console.error("Failed to load data", error);
-        // If 401, logout
-        if ((error as any).message?.includes('401') || (error as any).message?.includes('Unauthorized')) {
-            handleLogout();
+        try {
+          user = JSON.parse(storedUser);
+          setCurrentUser(user);
+        } catch (e) {
+          localStorage.removeItem('glr_user');
+          localStorage.removeItem('glr_token');
         }
       }
+      setAuthChecked(true); // Mark that we've checked for a session
+
+      // If a user was found, proceed to load all application data
+      if (user) {
+        try {
+          const [fetchedJobs, fetchedCrew, fetchedLocations, fetchedInventory, fetchedStdLists, fetchedRentals, fetchedTasks, fetchedNotifs, fetchedSettings] = await Promise.all([
+            api.getJobs(),
+            api.getCrew(),
+            api.getLocations(),
+            api.getInventory(),
+            api.getStandardLists(),
+            api.getRentals(),
+            api.getTasks(),
+            api.getNotifications(),
+            api.getSettings()
+          ]);
+          setJobs(fetchedJobs);
+          setCrew(fetchedCrew);
+          setLocations(fetchedLocations);
+          setInventory(fetchedInventory);
+          setStandardLists(fetchedStdLists);
+          setRentals(fetchedRentals);
+          setTasks(fetchedTasks);
+          setNotifications(fetchedNotifs);
+          setSettings(fetchedSettings);
+        } catch (error) {
+          console.error("Failed to load data", error);
+          // If any data call fails (e.g., due to an expired token), log out.
+          if ((error as any).message?.includes('401') || (error as any).message?.includes('Unauthorized')) {
+            handleLogout();
+          }
+        }
+      }
+      
+      // Finally, turn off the main loader
+      setIsLoading(false);
     };
 
-    loadData();
-  }, [currentUser]);
+    startup();
+  }, []); // This effect runs only once on mount
+
+  const handleLoginSuccess = async (user: { id: string, name: string; role: SystemRole }) => {
+    setIsLoading(true); // Show loader while we fetch data for the new user
+    setCurrentUser(user);
+    try {
+      const [fetchedJobs, fetchedCrew, fetchedLocations, fetchedInventory, fetchedStdLists, fetchedRentals, fetchedTasks, fetchedNotifs, fetchedSettings] = await Promise.all([
+        api.getJobs(), api.getCrew(), api.getLocations(), api.getInventory(), api.getStandardLists(), api.getRentals(), api.getTasks(), api.getNotifications(), api.getSettings()
+      ]);
+      setJobs(fetchedJobs); setCrew(fetchedCrew); setLocations(fetchedLocations); setInventory(fetchedInventory); setStandardLists(fetchedStdLists); setRentals(fetchedRentals); setTasks(fetchedTasks); setNotifications(fetchedNotifs); setSettings(fetchedSettings);
+    } catch (error) {
+      console.error("Failed to load data on login", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
 
   const handleLogout = () => {
       localStorage.removeItem('glr_user');
       localStorage.removeItem('glr_token');
       setCurrentUser(null);
+      // Clear all data to ensure a clean state
+      setJobs([]); setCrew([]); setLocations([]); setInventory([]); setStandardLists([]); setRentals([]); setTasks([]); setNotifications([]); setSettings(null);
   };
 
   // CRUD Handlers (Updated to use real API and refresh state)
@@ -169,6 +194,11 @@ const App: React.FC = () => {
       setRentals(prev => prev.filter(r => r.id !== id));
   };
 
+  const handleAddCrew = async (memberData: Partial<CrewMember>) => {
+      const newMember = await api.createCrewMember(memberData);
+      setCrew(prev => [...prev, newMember]);
+  };
+
   const handleUpdateCrew = async (member: CrewMember) => {
       const updated = await api.updateCrewMember(member);
       setCrew(prev => prev.map(c => c.id === updated.id ? updated : c));
@@ -197,24 +227,25 @@ const App: React.FC = () => {
   // Permissions Check
   const canAccess = (section: 'DASHBOARD' | 'JOBS' | 'TASKS' | 'STD_LISTS' | 'RENTALS' | 'INVENTORY' | 'LOCATIONS' | 'CREW' | 'EXPENSES' | 'SETTINGS' | 'COMPANY') => {
       if (!currentUser || !settings?.permissions) return false;
-      if (currentUser.role === 'ADMIN') return true;
       
-      const role = currentUser.role as 'MANAGER' | 'TECH';
+      const role = currentUser.role;
       const perms = settings.permissions[role];
+      if (!perms) return false;
 
-      if (section === 'DASHBOARD') return perms.canViewDashboard;
-      if (section === 'JOBS') return perms.canViewJobs;
-      if (section === 'TASKS') return perms.canViewTasks;
-      if (section === 'STD_LISTS') return perms.canViewKits;
-      if (section === 'RENTALS') return perms.canViewRentals;
-      if (section === 'INVENTORY') return perms.canViewInventory;
-      if (section === 'LOCATIONS') return perms.canViewLocations;
-      if (section === 'CREW') return perms.canViewCrew;
-      if (section === 'EXPENSES') return perms.canViewExpenses;
-      if (section === 'COMPANY') return perms.canViewCompany;
-      if (section === 'SETTINGS') return false; // Only Admin
-      
-      return true;
+      switch(section) {
+        case 'DASHBOARD': return perms.canViewDashboard;
+        case 'JOBS': return perms.canViewJobs;
+        case 'TASKS': return perms.canViewTasks;
+        case 'STD_LISTS': return perms.canViewKits;
+        case 'RENTALS': return perms.canViewRentals;
+        case 'INVENTORY': return perms.canViewInventory;
+        case 'LOCATIONS': return perms.canViewLocations;
+        case 'CREW': return perms.canViewCrew;
+        case 'EXPENSES': return perms.canViewExpenses;
+        case 'COMPANY': return perms.canViewCompany;
+        case 'SETTINGS': return role === 'ADMIN'; // Settings remains Admin-only
+        default: return false;
+      }
   };
 
   const NavItem = ({ id, icon: Icon, label }: { id: typeof activeTab, icon: any, label: string }) => {
@@ -234,12 +265,12 @@ const App: React.FC = () => {
     );
   };
 
-  if (isLoading) {
+  if (!authChecked || isLoading) {
       return <div className="min-h-screen bg-[#0f172a] flex items-center justify-center text-white"><Loader2 className="animate-spin"/></div>
   }
 
   if (!currentUser) {
-      return <Login onLoginSuccess={setCurrentUser} />;
+      return <Login onLoginSuccess={handleLoginSuccess} />;
   }
 
   return (
@@ -356,7 +387,7 @@ const App: React.FC = () => {
             {activeTab === 'INVENTORY' && canAccess('INVENTORY') && <Inventory inventory={inventory} onAddItem={handleAddInventory} onUpdateItem={handleUpdateInventory} onDeleteItem={handleDeleteInventory} />}
             {activeTab === 'STD_LISTS' && canAccess('STD_LISTS') && <StandardLists lists={standardLists} inventory={inventory} onAddList={handleAddStdList} onUpdateList={handleUpdateStdList} onDeleteList={handleDeleteStdList} jobs={jobs} onUpdateJob={handleUpdateJob} />}
             {activeTab === 'LOCATIONS' && canAccess('LOCATIONS') && <Locations locations={locations} onAddLocation={handleAddLocation} onUpdateLocation={handleUpdateLocation} onDeleteLocation={handleDeleteLocation} currentUser={currentUser} />}
-            {activeTab === 'CREW' && canAccess('CREW') && <Crew crew={crew} onUpdateCrew={handleUpdateCrew} jobs={jobs} settings={settings} currentUser={currentUser} />}
+            {activeTab === 'CREW' && canAccess('CREW') && <Crew crew={crew} onAddCrew={handleAddCrew} onUpdateCrew={handleUpdateCrew} jobs={jobs} settings={settings} currentUser={currentUser} />}
             {activeTab === 'EXPENSES' && canAccess('EXPENSES') && <ExpensesDashboard crew={crew} jobs={jobs} onUpdateCrew={handleUpdateCrew} />}
             {activeTab === 'COMPANY' && canAccess('COMPANY') && <CompanyManagement jobs={jobs} crew={crew} settings={settings} />}
             {activeTab === 'SETTINGS' && settings && currentUser.role === 'ADMIN' && <Settings settings={settings} onUpdateSettings={handleUpdateSettings} />}

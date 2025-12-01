@@ -1,16 +1,17 @@
 import React, { useState, useMemo } from 'react';
-import { CrewMember, CrewRole, CrewType, CrewExpense, CrewAbsence, ApprovalStatus, Job, CrewDocument, CrewTask, FinancialDocument, JobStatus } from '../types';
+import { CrewMember, CrewRole, CrewType, CrewExpense, CrewAbsence, ApprovalStatus, Job, CrewDocument, CrewTask, FinancialDocument, JobStatus, SystemRole } from '../types';
 import { User, Phone, MapPin, DollarSign, Calendar, FileText, CheckCircle, XCircle, Clock, MessageSquare, AlertCircle, Plus, ChevronRight, LayoutGrid, FileDown, Upload, Trash2, Download, Lock, Key, Printer, X, Briefcase, ChevronLeft, Shield, AlertTriangle, FileCheck, Euro, Paperclip, Send, BriefcaseIcon } from 'lucide-react';
 
 interface CrewProps {
   crew: CrewMember[];
+  onAddCrew?: (member: Partial<CrewMember>) => void;
   onUpdateCrew?: (member: CrewMember) => void;
   jobs?: Job[]; 
   settings?: any;
   currentUser?: { role: 'ADMIN' | 'MANAGER' | 'TECH' };
 }
 
-export const Crew: React.FC<CrewProps> = ({ crew, onUpdateCrew, jobs = [], settings, currentUser }) => {
+export const Crew: React.FC<CrewProps> = ({ crew, onAddCrew, onUpdateCrew, jobs = [], settings, currentUser }) => {
   const [filter, setFilter] = useState<'ALL' | 'INTERNAL' | 'FREELANCE'>('ALL');
   const [viewMode, setViewMode] = useState<'CARDS' | 'PLANNING' | 'REPORT'>('CARDS');
   const [selectedMember, setSelectedMember] = useState<CrewMember | null>(null);
@@ -21,6 +22,19 @@ export const Crew: React.FC<CrewProps> = ({ crew, onUpdateCrew, jobs = [], setti
   const [newTaskDate, setNewTaskDate] = useState('');
   const [newTaskDesc, setNewTaskDesc] = useState('');
   const [targetCrewId, setTargetCrewId] = useState('');
+
+  // New Member State
+  const [isNewMemberModalOpen, setIsNewMemberModalOpen] = useState(false);
+  const [newMemberData, setNewMemberData] = useState<Partial<CrewMember>>({
+      name: '',
+      type: CrewType.INTERNAL,
+      phone: '',
+      email: '',
+      roles: [],
+      dailyRate: 0,
+      accessRole: 'TECH',
+      password: ''
+  });
 
   // Payroll State
   const [selectedPayrollYear, setSelectedPayrollYear] = useState(new Date().getFullYear());
@@ -92,6 +106,16 @@ export const Crew: React.FC<CrewProps> = ({ crew, onUpdateCrew, jobs = [], setti
       const updatedMember = { ...member, tasks: [...existingTasks, newTask] };
       onUpdateCrew(updatedMember);
       setIsTaskModalOpen(false);
+  };
+
+  const handleSaveNewMember = () => {
+    if (!onAddCrew || !newMemberData.name || !newMemberData.email) {
+        alert("Nome e Email sono obbligatori.");
+        return;
+    }
+    onAddCrew({ ...newMemberData, id: `temp-${Date.now()}` });
+    setIsNewMemberModalOpen(false);
+    setNewMemberData({ name: '', type: CrewType.INTERNAL, phone: '', email: '', roles: [], dailyRate: 0, accessRole: 'TECH', password: '' });
   };
 
   // --- MEMBER DETAILS HANDLERS ---
@@ -195,12 +219,15 @@ export const Crew: React.FC<CrewProps> = ({ crew, onUpdateCrew, jobs = [], setti
       <div className="space-y-6 animate-fade-in relative">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
             <h2 className="text-2xl font-bold text-white">Gestione Crew & Tecnici</h2>
-            <div className="flex gap-4">
+            <div className="flex gap-4 items-center">
                 <div className="flex bg-glr-800 rounded-lg p-1 border border-glr-700">
                     <button onClick={() => setViewMode('CARDS')} className={`px-3 py-1 rounded text-sm transition-colors flex items-center gap-2 ${viewMode === 'CARDS' ? 'bg-glr-700 text-white' : 'text-gray-400'}`}><User size={16}/> Schede</button>
                     <button onClick={() => setViewMode('PLANNING')} className={`px-3 py-1 rounded text-sm transition-colors flex items-center gap-2 ${viewMode === 'PLANNING' ? 'bg-glr-700 text-white' : 'text-gray-400'}`}><LayoutGrid size={16}/> Planning</button>
                     <button onClick={() => setViewMode('REPORT')} className={`px-3 py-1 rounded text-sm transition-colors flex items-center gap-2 ${viewMode === 'REPORT' ? 'bg-glr-700 text-white' : 'text-gray-400'}`}><FileText size={16}/> Report PDF</button>
                 </div>
+                {currentUser?.role !== 'TECH' && (
+                    <button onClick={() => setIsNewMemberModalOpen(true)} className="bg-glr-accent text-glr-900 font-bold px-4 py-2 rounded-lg hover:bg-amber-400 flex items-center gap-2"><Plus size={18}/> Nuovo Tecnico</button>
+                )}
             </div>
         </div>
 
@@ -757,6 +784,69 @@ export const Crew: React.FC<CrewProps> = ({ crew, onUpdateCrew, jobs = [], setti
                             </div>
                         )}
 
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {isNewMemberModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 no-print">
+                <div className="bg-glr-800 rounded-xl border border-glr-600 w-full max-w-lg shadow-2xl animate-fade-in p-6">
+                    <h3 className="text-lg font-bold text-white mb-4">Nuovo Tecnico</h3>
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs text-gray-400 mb-1">Nome Cognome</label>
+                                <input type="text" value={newMemberData.name} onChange={e => setNewMemberData({...newMemberData, name: e.target.value})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white" autoFocus/>
+                            </div>
+                            <div>
+                                <label className="block text-xs text-gray-400 mb-1">Tipo</label>
+                                <select value={newMemberData.type} onChange={e => setNewMemberData({...newMemberData, type: e.target.value as CrewType})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white">
+                                    <option value={CrewType.INTERNAL}>Interno</option>
+                                    <option value={CrewType.FREELANCE}>Esterno / Freelance</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                             <div>
+                                <label className="block text-xs text-gray-400 mb-1">Email</label>
+                                <input type="email" value={newMemberData.email} onChange={e => setNewMemberData({...newMemberData, email: e.target.value})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white"/>
+                            </div>
+                             <div>
+                                <label className="block text-xs text-gray-400 mb-1">Telefono</label>
+                                <input type="text" value={newMemberData.phone} onChange={e => setNewMemberData({...newMemberData, phone: e.target.value})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white"/>
+                            </div>
+                        </div>
+                        
+                        {newMemberData.type === CrewType.INTERNAL ? (
+                            <div className="p-4 bg-glr-900/50 rounded border border-glr-700 space-y-4">
+                                <h4 className="text-sm font-bold text-glr-accent">Credenziali di Accesso</h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">Ruolo Sistema</label>
+                                        <select value={newMemberData.accessRole} onChange={e => setNewMemberData({...newMemberData, accessRole: e.target.value as SystemRole})} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white">
+                                            <option value="TECH">Tecnico</option>
+                                            <option value="MANAGER">Manager</option>
+                                            <option value="ADMIN">Admin</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1">Password</label>
+                                        <input type="password" value={newMemberData.password} onChange={e => setNewMemberData({...newMemberData, password: e.target.value})} className="w-full bg-glr-800 border border-glr-600 rounded p-2 text-white" placeholder="••••••••"/>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                             <div>
+                                <label className="block text-xs text-gray-400 mb-1">Tariffa Giornaliera (€)</label>
+                                <input type="number" value={newMemberData.dailyRate} onChange={e => setNewMemberData({...newMemberData, dailyRate: parseFloat(e.target.value)})} className="w-full bg-glr-900 border border-glr-600 rounded p-2 text-white"/>
+                            </div>
+                        )}
+                        
+                        <div className="flex gap-2 pt-4 justify-end">
+                            <button onClick={() => setIsNewMemberModalOpen(false)} className="px-4 py-2 text-gray-300">Annulla</button>
+                            <button onClick={handleSaveNewMember} className="bg-glr-accent text-glr-900 font-bold px-6 py-2 rounded">Crea Tecnico</button>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -1,4 +1,3 @@
-
 import { Job, CrewMember, Location, InventoryItem, AppSettings, StandardMaterialList, CostCenter, F24Payment, Rental, Task } from '../types';
 
 // Default Settings Fallback
@@ -17,6 +16,10 @@ const DEFAULT_SETTINGS: AppSettings = {
     googleCalendarId: '',
     crewRoles: ['Project Manager', 'Audio Engineer', 'Light Operator', 'Video Tech'],
     permissions: {
+        ADMIN: {
+            canViewDashboard: true, canViewJobs: true, canViewTasks: true, canViewKits: true, canViewRentals: true, canViewInventory: true, canViewLocations: true, canViewCrew: true, canViewExpenses: true, canViewCompany: true,
+            canManageJobs: true, canDeleteJobs: true, canViewBudget: true, canManageCrew: true, canManageExpenses: true, canManageInventory: true, canManageLocations: true, canManageRentals: true,
+        },
         MANAGER: { canViewDashboard: true, canViewJobs: true, canViewTasks: true, canViewKits: true, canViewRentals: true, canViewInventory: true, canViewLocations: true, canViewCrew: true, canViewExpenses: true, canViewCompany: false, canManageJobs: true, canDeleteJobs: false, canViewBudget: true, canManageCrew: true, canManageExpenses: true, canManageInventory: true, canManageLocations: true, canManageRentals: true },
         TECH: { canViewDashboard: true, canViewJobs: true, canViewTasks: true, canViewKits: true, canViewRentals: true, canViewInventory: true, canViewLocations: true, canViewCrew: true, canViewExpenses: true, canViewCompany: false, canManageJobs: false, canDeleteJobs: false, canViewBudget: false, canManageCrew: false, canManageExpenses: false, canManageInventory: false, canManageLocations: false, canManageRentals: false }
     }
@@ -52,13 +55,8 @@ export const api = {
 
   // CREW
   getCrew: () => fetchJson('/crew'),
-  updateCrewMember: (member: CrewMember) => {
-      if(member.id && !member.id.startsWith('temp-')) {
-          return fetchJson(`/crew/${member.id}`, { method: 'PUT', body: JSON.stringify(member) });
-      } else {
-          return fetchJson('/crew', { method: 'POST', body: JSON.stringify(member) });
-      }
-  },
+  createCrewMember: (member: Partial<CrewMember>) => fetchJson('/crew', { method: 'POST', body: JSON.stringify(member) }),
+  updateCrewMember: (member: CrewMember) => fetchJson(`/crew/${member.id}`, { method: 'PUT', body: JSON.stringify(member) }),
 
   // LOCATIONS
   getLocations: () => fetchJson('/locations'),

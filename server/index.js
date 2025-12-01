@@ -10,9 +10,42 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Increased limit for base64 images
 
-// --- SEEDING DEFAULT ADMIN ---
-async function seedDefaultAdmin() {
+// --- DEFAULT SETTINGS (SINGLE SOURCE OF TRUTH) ---
+const DEFAULT_SETTINGS = {
+    companyName: 'GLR Productions Srl',
+    pIva: 'IT1234567890',
+    address: 'Via Roma 1, 00100 Roma RM',
+    bankName: 'Banca Credito Esempio',
+    iban: 'IT60X0542811101000000123456',
+    logoUrl: '',
+    defaultDailyIndemnity: 50,
+    kmCost: 0.5,
+    defaultVatRate: 22,
+    googleCalendarClientId: '',
+    googleCalendarClientSecret: '',
+    googleCalendarId: '',
+    crewRoles: ['Project Manager', 'Audio Engineer', 'Light Operator', 'Video Tech', 'Rigger', 'Facchino'],
+    permissions: {
+        ADMIN: {
+            canViewDashboard: true, canViewJobs: true, canViewTasks: true, canViewKits: true, canViewRentals: true, canViewInventory: true, canViewLocations: true, canViewCrew: true, canViewExpenses: true, canViewCompany: true,
+            canManageJobs: true, canDeleteJobs: true, canViewBudget: true, canManageCrew: true, canManageExpenses: true, canManageInventory: true, canManageLocations: true, canManageRentals: true,
+        },
+        MANAGER: {
+            canViewDashboard: true, canViewJobs: true, canViewTasks: true, canViewKits: true, canViewRentals: true, canViewInventory: true, canViewLocations: true, canViewCrew: true, canViewExpenses: true, canViewCompany: true,
+            canManageJobs: true, canDeleteJobs: false, canViewBudget: true, canManageCrew: true, canManageExpenses: true, canManageInventory: true, canManageLocations: true, canManageRentals: true,
+        },
+        TECH: {
+            canViewDashboard: true, canViewJobs: true, canViewTasks: true, canViewKits: true, canViewRentals: true, canViewInventory: true, canViewLocations: true, canViewCrew: true, canViewExpenses: true, canViewCompany: false,
+            canManageJobs: false, canDeleteJobs: false, canViewBudget: false, canManageCrew: false, canManageExpenses: false, canManageInventory: false, canManageLocations: false, canManageRentals: false
+        }
+    }
+};
+
+
+// --- SEEDING INITIAL DATA ---
+async function seedInitialData() {
     try {
+        // 1. Seed Admin User
         const adminUserExists = await prisma.user.findUnique({
             where: { email: 'admin@glr.it' }
         });
@@ -20,24 +53,20 @@ async function seedDefaultAdmin() {
         if (!adminUserExists) {
             console.log('Seeding default admin user...');
             
-            // 1. Create Crew Member Profile
             const crewMember = await prisma.crewMember.create({
                 data: {
+                    id: 'admin-crew-id',
                     name: 'Amministratore',
                     type: 'Interno',
                     roles: ['Project Manager'],
-                    dailyRate: 0,
+                    email: 'admin@glr.it',
                     phone: '0000000000',
-                    absences: [],
-                    expenses: [],
-                    tasks: [],
-                    documents: []
                 }
             });
 
-            // 2. Create User Login Linked
             await prisma.user.create({
                 data: {
+                    id: 'admin-user-id',
                     email: 'admin@glr.it',
                     password: 'password', // IN PRODUCTION: Hash this!
                     role: 'ADMIN',
@@ -46,13 +75,27 @@ async function seedDefaultAdmin() {
             });
             console.log('Default admin created: admin@glr.it / password');
         }
+
+        // 2. Seed App Settings
+        const settingsExist = await prisma.appSettings.findFirst();
+        if (!settingsExist) {
+            console.log('Seeding default app settings...');
+            await prisma.appSettings.create({
+                data: {
+                    id: 1,
+                    settings: DEFAULT_SETTINGS
+                }
+            });
+            console.log('Default settings seeded.');
+        }
+
     } catch (e) {
-        console.error('Error seeding admin:', e);
+        console.error('Error during initial seeding:', e);
     }
 }
 
-// Run seed on start
-seedDefaultAdmin();
+// Run seed on server start
+seedInitialData();
 
 // --- AUTH ---
 app.post('/api/login', async (req, res) => {
@@ -65,17 +108,16 @@ app.post('/api/login', async (req, res) => {
 
         if (user && user.password === password) {
             // Structure response to match frontend expectations
-            const crewData = user.crewMember;
-            const userData = {
-                ...crewData,
-                email: user.email,
-                accessRole: user.role
+            const responseUser = {
+                id: user.crewMember?.id || user.id, // Prefer crew ID for consistency
+                name: user.crewMember?.name || user.email,
+                role: user.role
             };
 
             res.json({
                 success: true,
-                user: userData,
-                token: 'mock-jwt-token-12345' 
+                user: responseUser,
+                token: 'mock-jwt-token-for-session' 
             });
         } else {
             res.status(401).json({ success: false, message: 'Credenziali non valide' });
@@ -106,9 +148,7 @@ const createCrud = (model) => ({
     },
     update: async (req, res) => {
         try {
-            const { id, ...data } = req.body;
-            // Handle specific logic for relations if necessary, simplified for now
-            const item = await prisma[model].update({ where: { id: req.params.id }, data });
+            const item = await prisma[model].update({ where: { id: req.params.id }, data: req.body });
             res.json(item);
         } catch (e) { res.status(500).json({ error: e.message }); }
     },
@@ -128,7 +168,6 @@ app.put('/api/jobs/:id', jobsCrud.update);
 app.delete('/api/jobs/:id', jobsCrud.delete);
 
 // --- CREW ---
-// Crew needs special handling to include User relation
 app.get('/api/crew', async (req, res) => {
   try {
     const crew = await prisma.crewMember.findMany({ include: { user: true } });
@@ -223,10 +262,11 @@ app.delete('/api/tasks/:id', taskCrud.delete);
 app.get('/api/settings', async (req, res) => {
     try {
         const config = await prisma.appSettings.findFirst();
-        if (config) {
+        if (config && config.settings) {
             res.json(config.settings);
         } else {
-            res.json({}); // Will fallback to default in frontend
+            // Fallback in case seeding failed or DB was wiped without server restart
+            res.json(DEFAULT_SETTINGS); 
         }
     } catch (e) { res.status(500).json(e); }
 });
